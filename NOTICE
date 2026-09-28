@@ -1,0 +1,26 @@
+sovereign-runtime
+Copyright 2026 Daniel Kliewer
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product is a clean-room reimplementation. No source code was copied from
+any repository in the author's estate. Two upstream projects informed the
+architecture and remain the reference for future vendoring under ADR-001:
+
+  hermes-atlas        MIT License, Copyright (c) 2026 Daniel Kliewer
+                      https://github.com/<owner>/hermes-atlas
+                      Donor for: the determinism gate (full equality + delta
+                      isolation), the ledger, explain, and coverage-gap modules.
+                      Not yet vendored — the substrate was written against
+                      docs/architecture/data-model.md instead.
+
+  sovereign-worker    MIT License, Copyright (c) 2026 Daniel Kliewer
+                      Donor for: the permission engine, the 13 deterministic
+                      verifiers, the evidence ledger, the policy store, and the
+                      state machine. Not yet vendored.
+
+The epistemic state vocabulary, the proposal-only model, and the record shapes
+are *design* lineage from ganymede3 (no LICENSE file as of 2026-09-27) and
+authority-epistemic-protocol (no LICENSE file as of 2026-09-27). Per ADR-001
+their implementations were read but not copied. If a license is later added to
+either, a follow-up ADR may replace the reimplementation with a true port.

@@ -16,7 +16,7 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
-**Phase 2 — deterministic compiler built and verified.** 129 tests passing on
+**Phase 3 — the witness is built and verified.** 170 tests passing on
 Python 3.12, stdlib-only, offline.
 
 Implemented so far:
@@ -31,29 +31,38 @@ Implemented so far:
 | Sentence segmentation | Deterministic, offset-exact, so every compiled claim is a **verbatim substring** of its source | `compile/segment.py` |
 | Merkle manifest | Artifact version = root over sorted content leaves; recompiling unchanged bytes is *not* a new version | `compile/manifest.py` |
 | Deterministic compiler | A pure function of source bytes; mines recurrence heuristics as graph claims | `compile/compiler.py` |
+| Lexical retriever | Deterministic BM25, stdlib only, with the method id disclosed on every result | `witness/retrieval.py` |
+| **The witness** | A read-only, version-bound view that answers with typed, provenanced answers | `witness/witness.py` |
 | Independent auditor | Separate process, stdlib only, imports nothing from the package — walks every claim to a source offset | `scripts/audit_provenance.py` |
 
-### The one thing to understand about the compiler
+### The two rules that carry the thesis
 
-**It cannot assign an epistemic state.** Every claim it writes is `UNEXAMINED`,
-enforced by a guard that raises if `COMPILE_PERMITTED_STATES` is ever widened.
-This is [ADR-004](docs/adr/ADR-004-compiler-authority-and-manifest.md), and it
-is the thesis in one enforceable rule: establishing that one sentence is *about*
-another is a semantic judgement, and every deterministic proxy for it measures
-topical relevance rather than entailment. The compiler emits **candidates with
-provenance** and refuses to certify them. A test parses the compile package's
-AST and fails if any executable node so much as names a confidence value.
+**The compiler cannot assign an epistemic state.** Every claim it writes is
+`UNEXAMINED`, enforced by a guard that raises if `COMPILE_PERMITTED_STATES` is
+widened — [ADR-004](docs/adr/ADR-004-compiler-authority-and-manifest.md). A test
+parses the compile package's AST and fails if any executable node so much as
+names a confidence value.
 
-`UNRESOLVED` is likewise unreachable from a compile — it asserts a search
-happened, and parsing is not searching.
+**The witness cannot assert absence without showing its work.** It has no
+`answer() -> str`; every answer is a typed `WitnessAnswer` carrying a state, the
+claims, and resolved offsets — [ADR-005](docs/adr/ADR-005-witness-and-absence.md).
+A miss returns a real `UNRESOLVED` answer *plus* an `Investigation` record
+naming the query, the scope, the method, and the version searched. Absence lives
+inside the state machine, not beside it as a flag.
+
+The witness also never certifies: BM25 rank is exposed on every hit, and
+retrieval never promotes a claim past `UNEXAMINED`. An exact substring match is
+still `UNEXAMINED`, because presence is not support — that was the v0.1 failure.
 
 Verified by real execution, including adversarial cases:
 
 ```
 clean artifact         →  clean: True   exit 0
 source rewritten after →  clean: False  exit 1, 3 span mismatches
+witness on that artifact → raises, same mismatch, independently
 one byte changed       →  new Merkle root
 same bytes, reordered  →  identical root
+nonsense query         →  UNRESOLVED + investigation record, not a weak claim
 ```
 
 The full assessment, migration map, target architecture, data model, migration

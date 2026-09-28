@@ -32,6 +32,17 @@ CORPUS = (
     "Water is wet and the sky is blue.\n"
 )
 
+#: A second, independent source. It exists so the fixture has something the
+#: evaluator can genuinely find: each FACTS entry is restated here, so the
+#: first source's claims are attested by a *different* claim rather than by
+#: themselves. That distinction is the whole point of ADR-006 §2.2, and a
+#: fixture that faked it would test nothing.
+CORROBORATION = (
+    "Daniel built a local inference runtime in 2026.\n"
+    "The runtime compiles a corpus into a versioned artifact.\n"
+    "Ganymede v0.1 produced a fabricated narrative.\n"
+)
+
 #: Offsets are derived from the corpus text, never hand-counted. A hardcoded
 #: offset is a test that fails for the wrong reason the moment anyone edits a
 #: word — and the span verifier would (correctly) reject it, burying the real
@@ -52,16 +63,54 @@ def build_artifact(path: Path) -> None:
     """Compile a small corpus through the real API."""
     store = Store(str(path))
     src = store.add_source(uri="test://corpus/v1", source_type="note", content=CORPUS)
+    src2 = store.add_source(uri="test://corpus/v2", source_type="note", content=CORROBORATION)
 
     for fact in FACTS:
         start, end, text = _span(fact)
         eid = store.add_evidence(source_id=src, start_offset=start, end_offset=end, text=text)
         store.add_claim(
             text=text,
-            state=EpistemicState.SUPPORTED,
+            # UNEXAMINED, not SUPPORTED. Writing SUPPORTED here would assert
+            # that the evidence bears the claim with nothing having decided
+            # that — the unjustified assertion ADR-006 makes unrepresentable.
+            state=EpistemicState.UNEXAMINED,
             evidence_ids=[eid],
             transaction_time="2026-01-01T00:00:00Z",
         )
+
+    # The restating source. Each of these is a distinct claim (different
+    # source, different offset, therefore different content id) that states
+    # the same proposition as its counterpart above.
+    for fact in FACTS:
+        start2 = CORROBORATION.index(fact)
+        eid2 = store.add_evidence(
+            source_id=src2, start_offset=start2, end_offset=start2 + len(fact), text=fact
+        )
+        store.add_claim(
+            text=fact,
+            state=EpistemicState.UNEXAMINED,
+            evidence_ids=[eid2],
+            transaction_time="2026-01-01T00:00:00Z",
+        )
+
+    # Now something actually decides, and every state change it makes leaves an
+    # Evaluation record naming the claim that attested it. The independent
+    # auditor requires that record, so a store that moved state without one
+    # now fails the audit instead of passing it.
+    from sovereign_runtime.knowledge.evaluator import Evaluator
+
+    class _Manifest:
+        claim_ids = tuple(r["id"] for r in store.claims())
+        source_ids = (src, src2)
+        evidence_ids = ()
+        heuristic_ids = ()
+        version = "test-fixture"
+        root = "test-fixture"
+        state_counts: dict = {}
+
+    Evaluator(store, _Manifest()).evaluate_all(
+        apply=True, transaction_time="2026-01-01T00:00:00Z"
+    )
 
     # absence, made provable
     inv = store.add_investigation(
@@ -116,6 +165,17 @@ class TestIndependentAudit:
         assert "unresolved_without_investigation: []" in out
         assert "unresolved_absence: 1" in out
 
+    def test_support_is_auditable(self, artifact):
+        """The mirror of the check above (ADR-006).
+
+        A claim that moved past UNEXAMINED with no evaluation naming what
+        decided it is asserting support it cannot show. The auditor is the
+        only thing in the system not written by the same hand as the store, so
+        if this check lives anywhere it has to live here too.
+        """
+        _, out = run_auditor(artifact)
+        assert "state_without_evaluation: []" in out
+
 
 class TestAdversarial:
     """An auditor that cannot detect a planted defect certifies nothing."""
@@ -167,3 +227,26 @@ class TestAdversarial:
         code, out = run_auditor(p)
         assert code == 1, "auditor failed to detect an orphan claim"
         assert "orphans: []" not in out
+
+    def test_detects_a_state_change_with_no_evaluation(self, tmp_path):
+        """Strip the evaluator's records and every state becomes unjustified.
+
+        This is the positive-direction twin of the unproven-absence check. The
+        claims are intact and their spans still resolve, so every other check
+        passes — which is exactly why this check has to exist. A store that can
+        reach `supported` and then lose the record of why is asserting support
+        on the strength of nothing.
+        """
+        p = tmp_path / "bad4.db"
+        build_artifact(p)
+        conn = sqlite3.connect(p)
+        conn.execute("DELETE FROM evaluations")
+        conn.commit()
+        conn.close()
+
+        code, out = run_auditor(p)
+        assert code == 1, "auditor accepted states with nothing behind them"
+        assert "state_without_evaluation: []" not in out
+        # The other checks still pass, so this detection is doing real work.
+        assert "span_mismatches: []" in out
+        assert "orphans: []" in out

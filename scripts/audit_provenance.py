@@ -27,6 +27,7 @@ def audit(db_path: str) -> dict[str, Any]:
         "unresolved_absence": 0,
         "orphans": [],
         "dangling_edges": [],
+        "state_without_evaluation": [],
         "unresolved_without_investigation": [],
         "span_mismatches": [],
     }
@@ -75,6 +76,21 @@ def audit(db_path: str) -> dict[str, Any]:
                     is None
                 ):
                     report["unresolved_without_investigation"].append(claim["id"])
+
+            # The mirror of the check above, and the reason the auditor cannot
+            # be satisfied by a store that merely records absence (ADR-006).
+            # UNRESOLVED must show its work; SUPPORTED/CONTRADICTED/INCONCLUSIVE
+            # must too. A claim that moved state with no evaluation behind it
+            # is the positive-direction version of the same defect: an
+            # assertion that cannot explain what decided it.
+            if state not in ("unexamined", "assumed", "derived", "unresolved"):
+                has_eval = conn.execute(
+                    "SELECT 1 FROM evaluations WHERE subject_id = ?", (claim["id"],)
+                ).fetchone()
+                if has_eval is None:
+                    report["state_without_evaluation"].append(
+                        {"claim_id": claim["id"], "state": state}
+                    )
     finally:
         conn.close()
 
@@ -83,6 +99,7 @@ def audit(db_path: str) -> dict[str, Any]:
         and not report["dangling_edges"]
         and not report["unresolved_without_investigation"]
         and not report["span_mismatches"]
+        and not report["state_without_evaluation"]
     )
     return report
 

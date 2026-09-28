@@ -73,6 +73,16 @@ CREATE TABLE IF NOT EXISTS claims (
     meta           TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS evaluations (
+    id           TEXT PRIMARY KEY,
+    subject_id   TEXT NOT NULL,
+    relation     TEXT NOT NULL,
+    method       TEXT NOT NULL,
+    attested_by  TEXT NOT NULL,
+    decided_at   TEXT NOT NULL,
+    meta         TEXT NOT NULL DEFAULT '{}'
+);
+
 CREATE TABLE IF NOT EXISTS claim_evidence (
     claim_id    TEXT NOT NULL REFERENCES claims(id),
     evidence_id TEXT NOT NULL REFERENCES evidence(id),
@@ -332,6 +342,62 @@ class Store:
         )
         self.db.commit()
         return new
+
+    def add_evaluation(
+        self,
+        *,
+        subject_id: str,
+        relation: str,
+        method: str,
+        attested_by: Sequence[str] = (),
+        decided_at: str,
+        meta: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Record a verdict about a claim, returning its content id.
+
+        The mirror of ``add_investigation``. ADR-002 makes absence provable by
+        requiring an investigation; ADR-006 makes *support* provable by
+        requiring an evaluation. A state change with no record behind it is the
+        same defect in both directions, and both are closed at write time.
+
+        ``attested_by`` is the list of claim ids that bore the subject out. It
+        is empty for every relation except ``attested``, and the evaluator
+        cannot produce a ``SUPPORTED`` claim without it (ADR-006 §2.2).
+        """
+        if subject_id and self.get_claim(subject_id) is None:
+            raise UnknownReference(f"no such claim: {subject_id}")
+        meta = dict(meta or {})
+        rec = {
+            "subject_id": subject_id,
+            "relation": relation,
+            "method": method,
+            "attested_by": list(attested_by),
+            "decided_at": decided_at,
+            "meta": meta,
+        }
+        vid = content_id(rec, prefix="evl-")
+        self.db.execute(
+            "INSERT OR IGNORE INTO evaluations"
+            " (id, subject_id, relation, method, attested_by, decided_at, meta)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (
+                vid,
+                subject_id,
+                relation,
+                method,
+                canonical_bytes(list(attested_by)).decode(),
+                decided_at,
+                canonical_bytes(meta).decode(),
+            ),
+        )
+        self.db.commit()
+        return vid
+
+    def evaluations_for(self, subject_id: str) -> list[sqlite3.Row]:
+        cur = self.db.execute(
+            "SELECT * FROM evaluations WHERE subject_id = ? ORDER BY id", (subject_id,)
+        )
+        return cur.fetchall()
 
     # -- edges -----------------------------------------------------------
 

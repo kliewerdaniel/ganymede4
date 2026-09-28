@@ -16,8 +16,8 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
-**Phase 3 — the witness is built and verified.** 170 tests passing on
-Python 3.12, stdlib-only, offline.
+**Phase 4 — the evaluator: states can now move, and every move is recorded.**
+209 tests passing on Python 3.12, stdlib-only, offline.
 
 Implemented so far:
 
@@ -28,14 +28,16 @@ Implemented so far:
 | 13-state epistemic spine | Legal transitions as data; `UNRESOLVED` requires an investigation record; no function reads a confidence value | `knowledge/epistemic.py` |
 | Vocabulary crosswalk | The estate's four incompatible claim enums mapped onto the spine; unmapped terms raise rather than guess | `knowledge/crosswalk.py` |
 | Substrate store | sqlite3, real foreign keys, evidence spans verified against source text, provenance enforced at write time | `knowledge/store.py` |
+| Claim normalization | Conservative stemming and a closed negator list; anything ambiguous resolves toward `INCONCLUSIVE` | `knowledge/normalize.py` |
 | Sentence segmentation | Deterministic, offset-exact, so every compiled claim is a **verbatim substring** of its source | `compile/segment.py` |
 | Merkle manifest | Artifact version = root over sorted content leaves; recompiling unchanged bytes is *not* a new version | `compile/manifest.py` |
 | Deterministic compiler | A pure function of source bytes; mines recurrence heuristics as graph claims | `compile/compiler.py` |
 | Lexical retriever | Deterministic BM25, stdlib only, with the method id disclosed on every result | `witness/retrieval.py` |
-| **The witness** | A read-only, version-bound view that answers with typed, provenanced answers | `witness/witness.py` |
+| The witness | A read-only, version-bound view that answers with typed, provenanced answers | `witness/witness.py` |
+| **The evaluator** | The only component that may move a state — and it returns a relation, never a score | `knowledge/evaluator.py` |
 | Independent auditor | Separate process, stdlib only, imports nothing from the package — walks every claim to a source offset | `scripts/audit_provenance.py` |
 
-### The two rules that carry the thesis
+### The three rules that carry the thesis
 
 **The compiler cannot assign an epistemic state.** Every claim it writes is
 `UNEXAMINED`, enforced by a guard that raises if `COMPILE_PERMITTED_STATES` is
@@ -50,19 +52,30 @@ A miss returns a real `UNRESOLVED` answer *plus* an `Investigation` record
 naming the query, the scope, the method, and the version searched. Absence lives
 inside the state machine, not beside it as a flag.
 
-The witness also never certifies: BM25 rank is exposed on every hit, and
-retrieval never promotes a claim past `UNEXAMINED`. An exact substring match is
-still `UNEXAMINED`, because presence is not support — that was the v0.1 failure.
+**The evaluator cannot certify what it cannot show.** It returns one of four
+*relations* — `ATTESTED`, `CONTRADICTED`, `INCONCLUSIVE`, `UNRESOLVED` — and
+never a number, so there is nothing to threshold — [ADR-006](docs/adr/ADR-006-evaluator.md).
+`SUPPORTED` is unreachable unless another claim in the same corpus literally
+states the proposition, and the attesting claim ids are recorded. `INCONCLUSIVE`
+is the common case, which is the honest name for the relationship between
+lexical overlap and entailment.
+
+It is **sound but incomplete**: every verdict is correct, and it misses
+contradictions a careful reader would spot. That asymmetry is the design. A
+missed contradiction is a gap an operator closes; a manufactured one destroys a
+true claim, and `CONTRADICTED` is effectively absorbing.
 
 Verified by real execution, including adversarial cases:
 
 ```
-clean artifact         →  clean: True   exit 0
-source rewritten after →  clean: False  exit 1, 3 span mismatches
-witness on that artifact → raises, same mismatch, independently
-one byte changed       →  new Merkle root
-same bytes, reordered  →  identical root
-nonsense query         →  UNRESOLVED + investigation record, not a weak claim
+clean artifact           →  clean: True   exit 0
+source rewritten after   →  clean: False  exit 1, 3 span mismatches
+witness on that artifact →  raises, same mismatch, independently
+evaluations deleted      →  clean: False  exit 1, 3 unjustified states
+conflict pair compiled   →  2 contradicted, 2 inconclusive, 0 supported
+one byte changed         →  new Merkle root
+same bytes, reordered    →  identical root
+nonsense query           →  UNRESOLVED + investigation record, not a weak claim
 ```
 
 The full assessment, migration map, target architecture, data model, migration

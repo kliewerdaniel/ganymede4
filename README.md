@@ -16,8 +16,8 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
-**Phase 0/1 — substrate built and verified.** 90 tests passing on Python 3.12,
-stdlib-only, offline.
+**Phase 2 — deterministic compiler built and verified.** 129 tests passing on
+Python 3.12, stdlib-only, offline.
 
 Implemented so far:
 
@@ -28,12 +28,33 @@ Implemented so far:
 | 13-state epistemic spine | Legal transitions as data; `UNRESOLVED` requires an investigation record; no function reads a confidence value | `knowledge/epistemic.py` |
 | Vocabulary crosswalk | The estate's four incompatible claim enums mapped onto the spine; unmapped terms raise rather than guess | `knowledge/crosswalk.py` |
 | Substrate store | sqlite3, real foreign keys, evidence spans verified against source text, provenance enforced at write time | `knowledge/store.py` |
-| Independent auditor | Separate process, stdlib only, no import of the package — walks every claim to a source offset | `scripts/audit_provenance.py` |
+| Sentence segmentation | Deterministic, offset-exact, so every compiled claim is a **verbatim substring** of its source | `compile/segment.py` |
+| Merkle manifest | Artifact version = root over sorted content leaves; recompiling unchanged bytes is *not* a new version | `compile/manifest.py` |
+| Deterministic compiler | A pure function of source bytes; mines recurrence heuristics as graph claims | `compile/compiler.py` |
+| Independent auditor | Separate process, stdlib only, imports nothing from the package — walks every claim to a source offset | `scripts/audit_provenance.py` |
 
-Verified by real execution, including adversarial cases: rewriting a source after
-the fact is detected (`clean: False`, exit 1, all three claims flagged); a forged
-`UNRESOLVED` claim with no investigation record is detected; a `SUPPORTED` claim
-with no evidence is detected.
+### The one thing to understand about the compiler
+
+**It cannot assign an epistemic state.** Every claim it writes is `UNEXAMINED`,
+enforced by a guard that raises if `COMPILE_PERMITTED_STATES` is ever widened.
+This is [ADR-004](docs/adr/ADR-004-compiler-authority-and-manifest.md), and it
+is the thesis in one enforceable rule: establishing that one sentence is *about*
+another is a semantic judgement, and every deterministic proxy for it measures
+topical relevance rather than entailment. The compiler emits **candidates with
+provenance** and refuses to certify them. A test parses the compile package's
+AST and fails if any executable node so much as names a confidence value.
+
+`UNRESOLVED` is likewise unreachable from a compile — it asserts a search
+happened, and parsing is not searching.
+
+Verified by real execution, including adversarial cases:
+
+```
+clean artifact         →  clean: True   exit 0
+source rewritten after →  clean: False  exit 1, 3 span mismatches
+one byte changed       →  new Merkle root
+same bytes, reordered  →  identical root
+```
 
 The full assessment, migration map, target architecture, data model, migration
 plan, and test strategy are in `docs/architecture/`:

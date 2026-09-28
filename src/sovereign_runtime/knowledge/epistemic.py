@@ -1,6 +1,6 @@
 """Epistemic state machine (ADR-002).
 
-Twelve states, with legal transitions declared as data. The point is that
+Thirteen states, with legal transitions declared as data. The point is that
 illegal transitions are rejected by construction rather than by convention: a
 claim cannot silently go from ``UNEXAMINED`` to ``VALIDATED`` because some
 caller forgot to walk it through evidence.
@@ -37,7 +37,7 @@ __all__ = [
 
 
 class EpistemicState(str, Enum):
-    """The 12-state epistemic spine."""
+    """The 13-state epistemic spine."""
 
     #: never searched
     UNEXAMINED = "unexamined"

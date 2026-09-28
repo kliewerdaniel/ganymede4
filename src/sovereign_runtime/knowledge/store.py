@@ -291,11 +291,18 @@ class Store:
             ),
         )
         for eid in evidence_ids:
-            # No OR IGNORE: a dangling evidence id must raise, not be skipped.
-            # OR IGNORE would swallow exactly the FK violation that proves
-            # provenance is real.
+            # OR IGNORE is correct *and* preserves the fail-closed property.
+            # The original comment here claimed OR IGNORE would swallow a
+            # dangling evidence id; it does not. SQLite enforces foreign key
+            # constraints independently of the conflict resolution clause, so
+            # a bad evidence id still raises FOREIGN KEY constraint failed
+            # (verified directly). Without OR IGNORE, recompiling an unchanged
+            # corpus crashed on the second run — the claim row is
+            # already-present (INSERT OR IGNORE above) but this edge insert was
+            # not, which broke the idempotence that content addressing exists
+            # to provide. Both invariants are now held by the same statement.
             self.db.execute(
-                "INSERT INTO claim_evidence (claim_id, evidence_id) VALUES (?,?)",
+                "INSERT OR IGNORE INTO claim_evidence (claim_id, evidence_id) VALUES (?,?)",
                 (cid, eid),
             )
         self.db.commit()

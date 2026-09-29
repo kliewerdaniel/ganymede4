@@ -76,9 +76,19 @@ class TestVersionBinding:
 
     def test_new_witness_over_the_new_manifest_does_see_them(self, witness):
         w, store, _art = witness
+        # The added sentence must clear ADR-012's proposition floor, or it is
+        # correctly discarded and this test would be asserting the opposite of
+        # the invariant. That is not hypothetical: the first version of this
+        # fixture said "A new fact arrived." and failed, correctly.
         art2 = compile_corpus(
             store,
-            [SourceSpec(uri="notes.md", content=CORPUS), SourceSpec(uri="new.md", content="A new fact arrived.")],
+            [
+                SourceSpec(uri="notes.md", content=CORPUS),
+                SourceSpec(
+                    uri="new.md",
+                    content="A new fact arrived in the building yesterday.",
+                ),
+            ],
             transaction_time=TT,
         )
         w2 = Witness(store, art2.manifest)

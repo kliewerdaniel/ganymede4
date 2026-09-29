@@ -28,7 +28,7 @@ from ..core.content import content_id
 from ..knowledge.epistemic import EpistemicState
 from ..knowledge.store import Store
 from .manifest import Manifest, build_manifest
-from .segment import segment
+from .segment import is_proposition, segment
 
 __all__ = [
     "compile_corpus",
@@ -109,6 +109,11 @@ class CompiledArtifact:
     claim_ids: tuple[str, ...]
     evidence_ids: tuple[str, ...]
     heuristic_ids: tuple[str, ...]
+    #: Segments that were not propositions and were therefore not asserted
+    #: (ADR-012). Exposed on the artifact rather than logged, because a caller
+    #: that discards a fifth of its input without saying so is not reporting a
+    #: result, it is reporting a partial one.
+    dropped_segments: int = 0
 
     @property
     def version(self) -> str:
@@ -123,6 +128,7 @@ class CompiledArtifact:
                 "claims": len(self.claim_ids),
                 "evidence": len(self.evidence_ids),
                 "heuristics": len(self.heuristic_ids),
+                "dropped_segments": self.dropped_segments,
             },
             "state_counts": dict(self.manifest.state_counts),
         }
@@ -201,6 +207,8 @@ def compile_corpus(
     source_ids: list[str] = []
     claim_ids: list[str] = []
     evidence_ids: list[str] = []
+    #: Segments discarded as non-propositions (ADR-012). Reported, never silent.
+    dropped_segments: int = 0
     #: normalized shape -> (claim_id, source_id), for the miner.
     occurrences: dict[str, list[tuple[str, str]]] = {}
 
@@ -214,6 +222,19 @@ def compile_corpus(
         source_ids.append(sid)
 
         for seg in segment(spec.content):
+            # ADR-012: a segment that is not a proposition is discarded, not
+            # asserted. `except requests.`, `**6.`, and `.` all carry perfect
+            # spans and perfect provenance and are not claims — they were
+            # 22% of the real corpus, and they contradicted each other.
+            #
+            # The count is accumulated and reported. A pipeline that quietly
+            # discards a fifth of its input while reporting a clean compile is
+            # lying by omission, and the count is the only way an operator can
+            # notice that happened.
+            if not is_proposition(seg.text):
+                dropped_segments += 1
+                continue
+
             # The claim IS the evidence span. This is the whole mechanism:
             # there is no path by which the compiler produces a claim that is
             # not literally present in the source, because the text of one is
@@ -290,4 +311,5 @@ def compile_corpus(
         claim_ids=tuple(claim_ids),
         evidence_ids=tuple(evidence_ids),
         heuristic_ids=tuple(heuristic_ids),
+        dropped_segments=dropped_segments,
     )

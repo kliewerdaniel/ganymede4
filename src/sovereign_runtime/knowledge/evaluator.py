@@ -33,6 +33,7 @@ from enum import Enum
 from typing import Iterable, Sequence
 
 from ..compile.manifest import Manifest
+from ..core.content import digest
 from ..knowledge.epistemic import EpistemicState
 from ..knowledge.normalize import NEGATION_UNKNOWN, Normalized, normalize
 from ..knowledge.store import Store
@@ -306,12 +307,33 @@ class Evaluator:
         # minutes). `matching_docs` returns exactly the same set in time
         # proportional to the postings touched.
         neighbours = [d for d in self._index.matching_docs(text) if d != claim_id]
+        # ADR-013: record the neighbourhood's *identity* — how many claims were
+        # in it, and a digest over the sorted ids — not the ids themselves.
+        #
+        # Inlining the list cost 58 KB per record on the real corpus, because a
+        # 400-document slice already produced neighbourhoods in the hundreds
+        # and this is the path ~73% of claims take. Extrapolated, the run reached
+        # 20 GB at 4% completion and filled the disk. A count and a digest are
+        # constant-size and still independently recomputable from the index, so
+        # the record remains checkable rather than merely smaller.
+        #
+        # What is deliberately *not* done here is truncating the set to the
+        # first N ids. "Inconclusive, with 4,000 neighbours" and "inconclusive,
+        # with 50" must stay distinguishable, and a truncated list makes them
+        # indistinguishable in the one field that reports them.
+        if neighbours:
+            ordered = sorted(neighbours)
+            fingerprint = digest("\n".join(ordered).encode())[:16]
+            investigated = f"neighbours={len(ordered)};neighbour_digest={fingerprint}"
+        else:
+            investigated = "no-neighbours"
+
         return self._record(
             claim_id,
             text,
             Relation.INCONCLUSIVE,
             EpistemicState.INCONCLUSIVE,
-            investigated=f"neighbours={sorted(neighbours)}" if neighbours else "no-neighbours",
+            investigated=investigated,
             apply=apply,
             transaction_time=transaction_time,
         )

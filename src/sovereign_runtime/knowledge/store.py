@@ -21,8 +21,9 @@ Stdlib ``sqlite3`` only (ADR-003). No ORM, no service, no daemon.
 
 from __future__ import annotations
 
+import json
 import sqlite3
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Iterator, Mapping, NamedTuple, Sequence
 
 from ..core.canonical import canonical_bytes
 from ..core.content import content_id, digest
@@ -31,6 +32,15 @@ from .epistemic import EpistemicState, MissingInvestigation, check_transition
 __all__ = ["Store", "SCHEMA_VERSION", "ProvenanceError", "UnknownReference"]
 
 SCHEMA_VERSION = 1
+
+
+class _HydratedEvaluation(dict):
+    """One evaluation row with its attestation group resolved back to members.
+
+    A ``dict`` rather than ``sqlite3.Row`` because the group id is replaced on
+    the way out, which a ``Row`` cannot express. Callers already index these by
+    column name, so this is a drop-in for every existing read.
+    """
 
 #: Tables are created in dependency order. Every claim points at an evidence
 #: span, so ``evidence`` must exist before ``claims``. SQLite would happily
@@ -71,6 +81,12 @@ CREATE TABLE IF NOT EXISTS claims (
     transaction_time TEXT NOT NULL,
     investigation_id TEXT REFERENCES investigations(id),
     meta           TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS attestation_groups (
+    id       TEXT PRIMARY KEY,
+    members  TEXT NOT NULL,
+    size     INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS evaluations (
@@ -367,6 +383,17 @@ class Store:
         if subject_id and self.get_claim(subject_id) is None:
             raise UnknownReference(f"no such claim: {subject_id}")
         meta = dict(meta or {})
+
+        # ADR-013: the attesting set is stored once, content-addressed, and
+        # referenced by id. Inlining it here cost 58 KB per row on the real
+        # corpus and reached 20 GB at 4% completion, because every member of an
+        # equivalence class stores the same list. The record's *meaning* is
+        # unchanged; only the representation is.
+        group_id = self._put_attestation_group(attested_by)
+
+        # The content id still covers the resolved member list, not the group
+        # id, so a record's identity does not depend on how it happens to be
+        # stored. Two runs that find the same attestors produce the same id.
         rec = {
             "subject_id": subject_id,
             "relation": relation,
@@ -385,7 +412,7 @@ class Store:
                 subject_id,
                 relation,
                 method,
-                canonical_bytes(list(attested_by)).decode(),
+                group_id,
                 decided_at,
                 canonical_bytes(meta).decode(),
             ),
@@ -393,12 +420,68 @@ class Store:
         self.db.commit()
         return vid
 
+    def _put_attestation_group(self, attested_by: Sequence[str]) -> str:
+        """Store an attesting set once and return its content id.
+
+        The empty set gets the empty id, so a non-attested relation writes
+        nothing and its ``attested_by`` stays falsy — which is what
+        ``Evaluation.__post_init__`` checks.
+        """
+        members = sorted(set(attested_by))
+        if not members:
+            return ""
+        gid = content_id({"members": members}, prefix="agr-")
+        self.db.execute(
+            "INSERT OR IGNORE INTO attestation_groups (id, members, size) VALUES (?,?,?)",
+            (gid, canonical_bytes(members).decode(), len(members)),
+        )
+        return gid
+
+    def _attestation_members(self, group_id: str) -> list[str]:
+        """Resolve a group id back to its members, or raise.
+
+        An unresolvable group is a hard error rather than an empty list. An
+        empty list would make a ``SUPPORTED`` claim read as unattested, and
+        quietly demoting a supported claim to unattested is worse than a crash:
+        the crash is visible, the demotion is a claim that quietly lost its
+        evidence.
+        """
+        if not group_id:
+            return []
+        row = self.db.execute(
+            "SELECT members FROM attestation_groups WHERE id = ?", (group_id,)
+        ).fetchone()
+        if row is None:
+            raise UnknownReference(
+                f"evaluation references attestation group {group_id!r}, "
+                "which does not exist"
+            )
+        return list(json.loads(row["members"]))
+
     def evaluations_for(self, subject_id: str) -> list[sqlite3.Row]:
+        """Evaluations for a claim, with ``attested_by`` hydrated to members.
+
+        Callers see the attesting claim ids, exactly as before ADR-013. The
+        group indirection is a storage detail and is not leaked to readers.
+        """
         cur = self.db.execute(
             "SELECT * FROM evaluations WHERE subject_id = ? ORDER BY id", (subject_id,)
         )
-        return cur.fetchall()
-
+        hydrated = []
+        for row in cur.fetchall():
+            members = self._attestation_members(row["attested_by"])
+            hydrated.append(
+                _HydratedEvaluation(
+                    id=row["id"],
+                    subject_id=row["subject_id"],
+                    relation=row["relation"],
+                    method=row["method"],
+                    attested_by=canonical_bytes(members).decode(),
+                    decided_at=row["decided_at"],
+                    meta=row["meta"],
+                )
+            )
+        return hydrated
     # -- edges -----------------------------------------------------------
 
     def add_edge(self, from_id: str, to_id: str, relation: str) -> None:

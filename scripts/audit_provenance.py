@@ -12,6 +12,7 @@ skipped. This is the invariant that must never be relaxed.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 from typing import Any
@@ -29,6 +30,7 @@ def audit(db_path: str) -> dict[str, Any]:
         "dangling_edges": [],
         "state_without_evaluation": [],
         "unresolved_without_investigation": [],
+        "unresolvable_attestation": [],
         "span_mismatches": [],
     }
     try:
@@ -91,6 +93,48 @@ def audit(db_path: str) -> dict[str, Any]:
                     report["state_without_evaluation"].append(
                         {"claim_id": claim["id"], "state": state}
                     )
+
+        # ADR-013: `evaluations.attested_by` holds an `agr-` group id, not a
+        # member list. An auditor that only checked "does an evaluation row
+        # exist" would pass an artifact whose attesting evidence cannot be
+        # resolved at all — a support record naming nothing.
+        #
+        # This is a separate process on purpose: it re-derives the members from
+        # the database without importing the store, so a bug in the store's
+        # hydration cannot vouch for itself here.
+        for ev in conn.execute(
+            "SELECT id, subject_id, relation, attested_by FROM evaluations"
+            " WHERE attested_by != ''"
+        ).fetchall():
+            group = conn.execute(
+                "SELECT members FROM attestation_groups WHERE id = ?", (ev["attested_by"],)
+            ).fetchone()
+            if group is None:
+                report["unresolvable_attestation"].append(
+                    {"evaluation_id": ev["id"], "group": ev["attested_by"]}
+                )
+                continue
+            try:
+                members = json.loads(group["members"])
+            except (TypeError, ValueError):
+                report["unresolvable_attestation"].append(
+                    {"evaluation_id": ev["id"], "group": ev["attested_by"],
+                     "reason": "members are not valid JSON"}
+                )
+                continue
+            if not isinstance(members, list) or not members:
+                report["unresolvable_attestation"].append(
+                    {"evaluation_id": ev["id"], "group": ev["attested_by"],
+                     "reason": "attested relation with no attesting claims"}
+                )
+                continue
+            for member in members:
+                if conn.execute(
+                    "SELECT 1 FROM claims WHERE id = ?", (member,)
+                ).fetchone() is None:
+                    report["unresolvable_attestation"].append(
+                        {"evaluation_id": ev["id"], "missing_claim": member}
+                    )
     finally:
         conn.close()
 
@@ -100,6 +144,7 @@ def audit(db_path: str) -> dict[str, Any]:
         and not report["unresolved_without_investigation"]
         and not report["span_mismatches"]
         and not report["state_without_evaluation"]
+        and not report["unresolvable_attestation"]
     )
     return report
 

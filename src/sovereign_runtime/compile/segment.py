@@ -52,6 +52,42 @@ ABBREVIATIONS = frozenset(
 _TERMINATOR_RE = re.compile("(" + "|".join(re.escape(t) for t in TERMINATORS) + ")")
 
 
+#: The shortest a claim may be and still be a proposition someone could assert.
+#:
+#: This is a stated constant, not a tuned parameter. It was not fitted to this
+#: corpus to maximise the number of good-looking claims — a fitted threshold
+#: encodes this corpus's peculiarities and hands them to the next one.
+MIN_CLAIM_CHARS = 25
+
+#: A claim must contain at least one alphabetic character.
+#:
+#: `except requests.`, `**6.`, and `.` all pass a length test on some corpora
+#: and none of them is a proposition in any language this system reads. A
+#: segment with no letters is not a weak claim, it is not a claim.
+MIN_CLAIM_LETTERS = 1
+
+
+def is_proposition(text: str) -> bool:
+    """True if ``text`` is something a person could assert.
+
+    The fail-closed boundary of ADR-012. A claim that fails this test is
+    *discarded*, not emitted with a caveat — because a caveat is a claim, and
+    the whole problem is that these segments were being asserted at all.
+
+    The check lives at the compiler's output boundary rather than inside the
+    segmenter on purpose. A smarter segmenter that understands code fences and
+    Markdown would handle the cases its author thought of; this handles the
+    ones nobody did. And because it sits after segmentation, every future
+    segmentation strategy inherits the guarantee instead of having to remember
+    it.
+    """
+    stripped = text.strip()
+    if len(stripped) < MIN_CLAIM_CHARS:
+        return False
+    letters = sum(1 for ch in stripped if ch.isalpha())
+    return letters >= MIN_CLAIM_LETTERS
+
+
 @dataclass(frozen=True)
 class Segment:
     """One sentence-like unit of a source.

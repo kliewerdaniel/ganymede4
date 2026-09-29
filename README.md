@@ -16,20 +16,46 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
-**Phase 8 — the corpus: ganymede4, built on its author's own record.**
-322 tests passing on Python 3.12, stdlib-only, offline.
+**Phase 10 — the record shrinks: a verdict is a finding, not a dump.**
+373 tests passing on Python 3.12, stdlib-only, offline.
+
+The last full-corpus run died with `database or disk is full` at 4% completion
+and a 20.2 GB database. The evaluator was writing **58,345 bytes per
+evaluation**, because every `inconclusive` record inlined the full list of its
+lexical neighbours. Quadratic in the corpus, and entirely invisible to seven
+phases of tests, because every fixture was small enough that inlining a
+neighbour cost nothing.
+
+It is now 1,049 bytes — 56× less, and linear. Neighbourhoods are recorded as a
+count plus a content digest, never truncated, because "inconclusive with 4,000
+neighbours" and "inconclusive with 50" must stay distinguishable. Attestation
+sets are stored once, content-addressed, instead of copied into every member's
+row. [ADR-013](docs/adr/ADR-013-evaluation-record-size.md).
+
+Two claims made by earlier phases were not true until measured: that
+`attested_by` was the culprit (it was ~2% of the bytes), and that ADR-011 had
+made the evaluator linear (it had only made *finding* neighbours linear).
+Fixing retrieval and ignoring persistence is how you get a 20 GB file and a
+green test suite.
+
+**The corpus is 18,930 documents of KonradFreeman's own public record** —
+2,178 Reddit comments, 676 submissions, and 562 ChatGPT conversations, read
+from their existing location and never committed to the repository. It is the
+natural test of the thesis: one person arguing with strangers about whether
+models are the intelligence system, while simultaneously doing exactly that
+argument with models. 44% of it is a model's own prior output, typed as such
+and never presented as testimony.
+
+**A claim must be a proposition** — ADR-012. Seven phases of prose fixtures hid
+that 22% of the real corpus was not claims at all but `**6.`, `return None`, and
+`except requests.`: perfectly addressed, not assertable. Segments that cannot be
+proposed are discarded, and the count of discards is reported on the artifact,
+never dropped silently.
 
 **The project is `ganymede4`** — the fourth attempt at the same problem in this
 lineage, and the succession is the point. Apache-2.0 and clean-room: it is not
 a fork of any predecessor, and nothing has been copied from `ganymede3`, which
 remains an unlicensed read-only design reference per ADR-001.
-
-**The corpus is 18,930 documents of KonradFreeman's own public record** — 2,178
-Reddit comments, 676 submissions, and 562 ChatGPT conversations, read from
-their existing location and never committed to the repository. It is the
-natural test of the thesis: one person arguing with strangers about whether
-models are the intelligence system, while simultaneously doing exactly that
-argument with models.
 
 Implemented so far:
 
@@ -213,6 +239,59 @@ change**. Recall was preserved, not spent.
 > survived in the comment explaining the replacement. It was guarding a prose
 > description of the bug instead of the bug's absence. The assertion is now
 > AST-based, so no comment or docstring can satisfy it.
+
+## Resolved: the evaluator wrote 56× more than it needed to
+
+The fix above made *finding* neighbours linear. It did not make *storing* them
+linear, and the next full-corpus run proved it by filling the disk.
+
+```
+sqlite3.OperationalError: database or disk is full
+```
+
+20.2 GB, 17,691 evaluations written out of 324,951. On a 400-document slice:
+
+| | measured |
+|---|---|
+| after compile (10,148 claims) | 18.2 MB |
+| after `evaluate_all()` | 610.3 MB |
+| **per evaluation** | **58,345 bytes** |
+
+One line was responsible:
+
+```python
+investigated=f"neighbours={sorted(neighbours)}" if neighbours else "no-neighbours"
+```
+
+Every lexically-matched claim id, as a set repr, inlined into a string — on the
+`inconclusive` path, which ~73% of claims take. The neighbourhood of an
+inconclusive claim is not its evidence. The evidence is *that a search ran and
+found material that did not establish a conclusion*. How many documents share a
+word with a claim is a property of the corpus, not a fact about the claim — and
+it is exactly why the verdict is `inconclusive` rather than `attested`.
+
+Neighbourhoods are now a count plus a digest over the sorted ids: 1,049 bytes,
+constant-size, still independently recomputable from the index. Scaling
+measured at 200/400/800 documents is 0.88×–1.37× per doubling, not the ≥2× of
+a quadratic. Attestation sets are additionally stored once, content-addressed,
+rather than copied into every member's row.
+
+Three things this cost, all worth recording:
+
+- **The first hypothesis was wrong.** The obvious suspect, `attested_by`, is
+  genuinely quadratic and genuinely worth fixing — but it was ~2% of the bytes.
+  What broke it open was noticing the *largest* `attested_by` was 8,095 bytes
+  while the *average row* was 58,345. The two numbers could not both be true.
+- **Three versions of the regression test passed against the broken code.**
+  Six sentences attest nothing; `REPEATED * 40` deduplicates to six claims,
+  because claims are content-addressed; and padding each claim with the
+  proposition it was attesting made every claim `attested`, so none reached the
+  broken branch at all. The fixture now grows by adding *distinct* text with
+  shared vocabulary, and the tests are confirmed to fail against the old
+  representation before being trusted.
+- **ADR-011's claim of linearity was narrower than it read.** It made retrieval
+  linear. Storing was a separate problem in a separate layer, found only by
+  running the thing at the size it was meant to run at.
 
 ## The principle, stated once
 

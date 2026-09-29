@@ -93,6 +93,10 @@ def main() -> int:
         print(f"  claims  : {counts.get('claims', 0):,}")
         print(f"  evidence: {counts.get('evidence', 0):,}")
         print(f"  heurist.: {counts.get('claims', 0) and len(artifact.heuristic_ids):,}")
+        # ADR-012: never a silent discard. A compile that dropped 97,802
+        # segments and did not say so would be reporting a partial result as
+        # if it were a complete one.
+        print(f"  dropped : {artifact.dropped_segments:,} non-propositions")
 
         # Reproducibility: the same bytes must give the same root. A loader
         # that produced a fresh digest per run would break this, and the whole

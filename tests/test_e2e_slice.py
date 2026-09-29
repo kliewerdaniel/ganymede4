@@ -12,6 +12,7 @@ certify absence of one.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 import sys
@@ -59,11 +60,37 @@ def _span(needle: str) -> tuple[int, int, str]:
     return start, start + len(needle), needle
 
 
-def build_artifact(path: Path) -> None:
-    """Compile a small corpus through the real API."""
+def build_artifact(path: Path, extra_source: str | None = None) -> None:
+    """Compile a small corpus through the real API.
+
+    ``extra_source`` adds a third document verbatim. It exists for the NUL
+    regression test: the auditor's span check has to survive a source
+    containing a literal NUL, and that can only be tested with a source that
+    actually contains one.
+    """
     store = Store(str(path))
     src = store.add_source(uri="test://corpus/v1", source_type="note", content=CORPUS)
     src2 = store.add_source(uri="test://corpus/v2", source_type="note", content=CORROBORATION)
+    if extra_source is not None:
+        src3 = store.add_source(
+            uri="test://corpus/nul", source_type="note", content=extra_source
+        )
+        # Evidence *past* the NUL, which is exactly where a C-string
+        # implementation stops reading and reports a false mismatch.
+        tail = "A later sentence survives the NUL byte."
+        start3 = extra_source.index(tail)
+        eid3 = store.add_evidence(
+            source_id=src3,
+            start_offset=start3,
+            end_offset=start3 + len(tail),
+            text=tail,
+        )
+        store.add_claim(
+            text=tail,
+            state=EpistemicState.UNEXAMINED,
+            evidence_ids=[eid3],
+            transaction_time="2026-01-01T00:00:00Z",
+        )
 
     for fact in FACTS:
         start, end, text = _span(fact)
@@ -144,11 +171,24 @@ def artifact(tmp_path_factory):
     return p
 
 
+def audit_json(path):
+    """Parse the auditor's report.
+
+    The assertions below used to grep the printed text, which made them
+    assertions about *formatting* rather than about the audit: renaming a key
+    would fail every one of them while the audit was unchanged, and a value
+    printed in a way the substring missed would pass while the defect was
+    there. They now read the values.
+    """
+    code, out = run_auditor(path)
+    return code, json.loads(out)
+
+
 class TestIndependentAudit:
     def test_auditor_passes_on_a_well_formed_artifact(self, artifact):
-        code, out = run_auditor(artifact)
-        assert code == 0, f"auditor rejected a valid artifact:\n{out}"
-        assert "clean: True" in out
+        code, report = audit_json(artifact)
+        assert code == 0, f"auditor rejected a valid artifact:\n{report}"
+        assert report["clean"] is True
 
     def test_auditor_is_a_separate_process(self):
         # the auditor must not import the package under test
@@ -156,14 +196,14 @@ class TestIndependentAudit:
         assert "sovereign_runtime" not in source
 
     def test_every_claim_resolves_to_a_source_span(self, artifact):
-        _, out = run_auditor(artifact)
-        assert "orphans: []" in out
-        assert "span_mismatches: []" in out
+        _, report = audit_json(artifact)
+        assert report["orphans"] == []
+        assert report["span_mismatches"] == []
 
     def test_absence_is_auditable(self, artifact):
-        _, out = run_auditor(artifact)
-        assert "unresolved_without_investigation: []" in out
-        assert "unresolved_absence: 1" in out
+        _, report = audit_json(artifact)
+        assert report["unresolved_without_investigation"] == []
+        assert report["unresolved_absence"] == 1
 
     def test_support_is_auditable(self, artifact):
         """The mirror of the check above (ADR-006).
@@ -173,8 +213,8 @@ class TestIndependentAudit:
         only thing in the system not written by the same hand as the store, so
         if this check lives anywhere it has to live here too.
         """
-        _, out = run_auditor(artifact)
-        assert "state_without_evaluation: []" in out
+        _, report = audit_json(artifact)
+        assert report["state_without_evaluation"] == []
 
 
 class TestAdversarial:
@@ -191,9 +231,9 @@ class TestAdversarial:
         conn.commit()
         conn.close()
 
-        code, out = run_auditor(p)
+        code, report = audit_json(p)
         assert code == 1, "auditor failed to detect source drift"
-        assert "span_mismatches: []" not in out
+        assert report["span_mismatches"]
 
     def test_detects_an_unresolved_claim_with_no_investigation(self, tmp_path):
         p = tmp_path / "bad2.db"
@@ -208,9 +248,9 @@ class TestAdversarial:
         conn.commit()
         conn.close()
 
-        code, out = run_auditor(p)
+        code, report = audit_json(p)
         assert code == 1, "auditor failed to detect unproven absence"
-        assert "unresolved_without_investigation: []" not in out
+        assert report["unresolved_without_investigation"]
 
     def test_detects_an_evidence_bearing_claim_with_no_evidence(self, tmp_path):
         p = tmp_path / "bad3.db"
@@ -224,9 +264,34 @@ class TestAdversarial:
         conn.commit()
         conn.close()
 
-        code, out = run_auditor(p)
+        code, report = audit_json(p)
         assert code == 1, "auditor failed to detect an orphan claim"
-        assert "orphans: []" not in out
+        assert report["orphans"]
+
+    def test_a_nul_byte_in_a_source_is_not_a_provenance_defect(self, tmp_path):
+        """The auditor must not invent defects.
+
+        SQLite's ``substr()`` works on a NUL-terminated C string, so a source
+        containing a literal NUL truncates there and every span past that point
+        reads as empty. An auditor written that way reported **1,434 false span
+        mismatches** on the real corpus — correct provenance, broken checker.
+
+        This is worth a test because the failure mode is quiet and expensive in
+        the wrong direction: a checker that cries wolf is one people learn to
+        ignore, and then it also fails to report the defects that are real.
+        """
+        p = tmp_path / "nul.db"
+        prefix = "The runtime enforces provenance at write time. "
+        body = "\x00" + "Filler text before the claim. " * 4
+        tail = "A later sentence survives the NUL byte."
+        build_artifact(p, extra_source=prefix + body + tail)
+
+        code, report = audit_json(p)
+        assert report["span_mismatches"] == [], (
+            "a NUL byte in the source was reported as broken provenance: "
+            f"{report['span_mismatches'][:2]}"
+        )
+        assert code == 0, f"auditor rejected a valid artifact containing a NUL:\n{report}"
 
     def test_detects_a_state_change_with_no_evaluation(self, tmp_path):
         """Strip the evaluator's records and every state becomes unjustified.
@@ -244,9 +309,9 @@ class TestAdversarial:
         conn.commit()
         conn.close()
 
-        code, out = run_auditor(p)
+        code, report = audit_json(p)
         assert code == 1, "auditor accepted states with nothing behind them"
-        assert "state_without_evaluation: []" not in out
+        assert report["state_without_evaluation"]
         # The other checks still pass, so this detection is doing real work.
-        assert "span_mismatches: []" in out
-        assert "orphans: []" in out
+        assert report["span_mismatches"] == []
+        assert report["orphans"] == []

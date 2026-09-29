@@ -116,6 +116,18 @@ CREATE TABLE IF NOT EXISTS claim_edges (
 CREATE INDEX IF NOT EXISTS idx_evidence_source ON evidence(source_id);
 CREATE INDEX IF NOT EXISTS idx_claim_evidence_ev ON claim_evidence(evidence_id);
 CREATE INDEX IF NOT EXISTS idx_claims_state ON claims(state);
+
+-- ADR-014: the evaluator and the auditor both ask "which evaluation(s) name
+-- this claim?". Without an index on `subject_id`, that is a full scan of the
+-- evaluations table per claim — quadratic, and invisible until an artifact is
+-- large enough to time out on. The independent auditor hit exactly this on
+-- 324,951 claims; it is the same query the store runs in `evaluations_for`.
+--
+-- These are indexes, not columns: they cannot change a content id, a Merkle
+-- root, or a schema version, so an artifact compiled before them still
+-- verifies against a manifest compiled after.
+CREATE INDEX IF NOT EXISTS idx_evaluations_subject ON evaluations(subject_id);
+CREATE INDEX IF NOT EXISTS idx_claim_evidence_claim ON claim_evidence(claim_id);
 """
 
 

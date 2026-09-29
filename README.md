@@ -16,8 +16,18 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
-**Phase 10 — the record shrinks: a verdict is a finding, not a dump.**
-373 tests passing on Python 3.12, stdlib-only, offline.
+**Phase 11 — the auditor runs, and stops lying.**
+375 tests passing on Python 3.12, stdlib-only, offline.
+
+The independent auditor had never completed on a real artifact: it looped over
+every claim issuing an unindexed query, ~10^11 row visits. It is now set-based
+and finishes the 324,951-claim corpus in **7.7 seconds**, clean, exit 0.
+
+The first fast version then reported **1,434 span mismatches on a clean
+artifact** — SQLite's `substr()` is NUL-terminated and one export contains a
+literal NUL. Correct provenance, broken checker. A noisy auditor is worse than
+none: it teaches its readers to ignore it, and they will ignore it when a real
+defect arrives. [ADR-014](docs/adr/ADR-014-auditor-must-run.md).
 
 The last full-corpus run died with `database or disk is full` at 4% completion
 and a 20.2 GB database. The evaluator was writing **58,345 bytes per
@@ -295,6 +305,36 @@ peer groups: 151,488   contradicted  :    646
 
 Zero claims left `unexamined`. A 56× reduction is only interesting because the
 thing it made possible was finishing: the previous run never reached 5%.
+
+**And then the independent auditor ran on it** —
+[ADR-014](docs/adr/ADR-014-auditor-must-run.md) — which is where the last two
+defects were, both in the thing that verifies everything else:
+
+```
+claims: 324,951   resolved: 308,935   clean: true   7.7s   exit 0
+```
+
+The auditor had never completed on a real artifact: it looped over every claim
+and issued an unindexed `SELECT` per claim, ~10^11 row visits. It is now
+set-based, and the store gained the two indexes it was missing.
+
+Worse, the first set-based version reported **1,434 span mismatches on a clean
+artifact**. SQLite's `substr()` is NUL-terminated, one ChatGPT export contains
+a literal NUL, and every span past it read as empty. The provenance was correct
+in all 1,434; the checker was wrong. Span comparison moved to Python, where a
+NUL is just a character.
+
+> A noisy auditor is worse than no auditor. It trains its readers to ignore it,
+> and a reader who has learned to ignore it will also ignore the output when a
+> real defect appears. It does not degrade to useless — it degrades to
+> *anti-useful*. So the tests now assert both directions: the auditor must catch
+> a planted defect, and it must not invent one.
+
+Tamper check on the real artifact — one byte changed in one source:
+
+```
+exit 1, span_mismatches: 3, resolved 308,935 -> 308,932
+```
 
 Three things this cost, all worth recording:
 

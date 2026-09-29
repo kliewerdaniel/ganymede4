@@ -16,6 +16,57 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
+**Phase 13 — exporter structure is not the author.**
+417 tests passing on Python 3.12, stdlib-only, offline.
+
+[ADR-016](docs/adr/ADR-016-exporter-structure.md): a Reddit/ChatGPT export is
+markdown, and the exporter writes `## Parent Comment`, `---` rules, and ``` fences
+that the author never typed. None is a sentence terminator, so a block whose text
+carried no `.` at all came out as **one** claim:
+
+```
+'---\n\n## Parent Comment\n\nDM\n\n---\n\n## Parent Comment\n\nWhy?'
+```
+
+One claim, two comments by two different people, attributed to a single evidence
+span. The witness's top-ranked answer to "parent comment" was the literal string
+`## Parent Comment`.
+
+Block-level markdown is now a boundary, and the authored text survives it:
+`## Why were libraries burnt?` becomes `Why were libraries burnt?`. Inline markup
+is untouched — `#` in `C#`, `*` in `3 * 4`, a mid-line `---`.
+
+```
+mid-claim '## ' :  9,096 -> 1,021
+'---' rules     :  2,155 ->    53
+code fences     :  5,766 ->    868
+claims          : 336,190   audit clean, exit 0
+```
+
+The residue is *not* missed boundaries. 884 of the 1,021 are mid-line (`f"## Comment"`
+inside a Python string), 39 are escaped (`\#`, which is a character the author typed),
+and the fences are the same. Verified directly: a real line-start ``` fence is
+detected, the fence is excluded from the segment, the body beneath it is captured
+verbatim, and **zero** segments open with a line-start fence.
+
+Non-verbatim offsets across all 434,091 segments of the real corpus: **0**.
+
+This one cost more than it should have. Four attempts at a single regex each failed
+invisibly — a zero-width branch that looped forever, an optional capture group that
+matched empty so the caller could not tell a heading from a fence, an alternation
+branch that won with an empty match, and a "rest of line" test that read the rest of
+the *text* and so called a `---` at offset 0 prose. None of those is visible in the
+pattern; each only shows up as text that merges or disappears. The fix was to stop
+and write three explicit cases in Python, which is shorter than the commentary
+explaining why the cleverer pattern was wrong.
+
+Profiling then caught a 13× regression — the block scan was rescanning forward from
+every terminator, 1.47M calls over the corpus. Carrying the pending boundary forward
+made it a single pass, and the full corpus now segments in **3.8s**, faster than the
+8.7s baseline before this change.
+
+## Earlier status
+
 **Phase 12 — a control character is a boundary, not content.**
 400 tests passing on Python 3.12, stdlib-only, offline.
 

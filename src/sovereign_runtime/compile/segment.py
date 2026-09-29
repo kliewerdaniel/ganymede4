@@ -97,12 +97,112 @@ def contains_control(text: str) -> bool:
 
 _TERMINATOR_RE = re.compile("(" + "|".join(re.escape(t) for t in TERMINATORS) + ")")
 
-#: Terminators *or* control characters — every place a segment may end.
-#:
-#: Control characters are part of the alternation rather than a separate pass
-#: so that offset arithmetic stays in one place. A separate scan would have to
-#: merge two sorted boundary streams, and merging boundary streams is exactly
-#: where offset bugs live.
+#: Indentation characters that may precede block markup. U+00A0 is here because
+#: real corpus text is indented with non-breaking spaces — ChatGPT answers in
+#: particular — and fences written that way merged the blocks around them. It is
+#: not a control character and stays out of ADR-015's boundary set; indentation
+#: is the thing that matters here.
+_INDENT_CHARS = " \t "
+
+#: A thematic break needs three or more of one character. A single `-` opens a
+#: list item and a two-character run is far more likely to be prose, so a
+#: looser rule would split every bulleted list in the corpus mid-item.
+_BREAK_RUN = 3
+
+
+def _block_boundary_at(text: str, i: int) -> tuple[int, str] | None:
+    """Classify a block-markup boundary starting at line-start offset ``i``.
+
+    Returns ``(consumed, kind)`` where ``kind`` is ``"heading"`` or ``"rule"``,
+    or None if the line at ``i`` is ordinary prose.
+
+    This is a function rather than a regex because every regex form I tried got
+    one of three things subtly wrong: an optional capture group matching empty
+    (so the caller could not tell a heading from a fence), a zero-width branch
+    (so the scan loop re-matched the same offset forever), or an alternation
+    branch that won with an empty match before the real branch was tried. Each
+    of those is invisible in the pattern and only shows up as text that merges
+    or disappears. Spelling out three cases is shorter than the commentary
+    needed to explain why a cleverer pattern is wrong.
+    """
+    n = len(text)
+    j = i
+    while j < n and text[j] in _INDENT_CHARS:
+        j += 1
+    if j >= n:
+        return None
+
+    # ATX heading: one to six '#', then required whitespace and real text. The
+    # text is authored, so `consumed` stops before it and the caller keeps it.
+    if text[j] == "#":
+        k = j
+        while k < n and text[k] == "#":
+            k += 1
+        if 1 <= k - j <= 6 and k < n and text[k] in _INDENT_CHARS and k + 1 < n and not text[k + 1].isspace():
+            return (k, "heading")
+        return None
+
+    # Thematic break: a run of '-'/'*'/'_' filling the rest of the line. The
+    # test is "rest of THIS line", not "rest of the text" — reading it as the
+    # latter makes a perfectly ordinary `---` at offset 0 look like prose,
+    # because everything after it is heading text.
+    for ch in "-*_":
+        k = j
+        while k < n and text[k] == ch:
+            k += 1
+        if k - j >= _BREAK_RUN:
+            nl = text.find("\n", k)
+            tail = text[k:] if nl == -1 else text[k:nl]
+            return (k, "rule") if not tail.strip() else None
+
+    # Code fence: ``` or ~~~. The language tag is dropped with the fence line.
+    for ch in ("`", "~"):
+        if text.startswith(ch * 3, j):
+            return (j + 3, "rule")
+
+    return None
+
+
+def _next_block_boundary(text: str, frm: int, n: int) -> tuple[int, str, int] | None:
+    """Find the first block-markup line at or after ``frm``.
+
+    Returns ``(consumed, kind, at)`` — the offset just past the markup, whether
+    it is a ``"heading"`` or a ``"rule"``, and the offset where the markup
+    starts — or None when no line from ``frm`` onward begins a heading, rule, or
+    fence.
+
+    Only line starts are considered, and that is what keeps ``#`` in "C# and
+    F#", ``*`` in "3 * 4", and a mid-line ``---`` out of it.
+    """
+    # Offset 0 is a line start too, and skipping it means a document that opens
+    # with "## A heading" never has its heading recognised — the defect this
+    # whole change exists to fix, surviving at the most visible position there
+    # is.
+    if frm == 0 or (frm > 0 and text[frm - 1] == "\n"):
+        found = _block_boundary_at(text, frm)
+        if found is not None:
+            consumed, kind = found
+            return (consumed, kind, frm)
+    at = text.find("\n", frm)
+    while at != -1:
+        start = at + 1
+        found = _block_boundary_at(text, start)
+        if found is not None:
+            consumed, kind = found
+            return (consumed, kind, start)
+        at = text.find("\n", start)
+    return None
+
+
+#: Terminators and control characters only. Block markup is handled in Python by
+#: `_block_boundary_at`, because it needs to report *which* kind of boundary it
+#: found so the caller knows whether the following text is authored. Folding it
+#: into this alternation kept the offset arithmetic in one place, but bought
+#: that with a pattern whose empty-match branches were the source of three
+#: separate bugs; the two scans are merged in `iter_segments` instead, at a
+#: single point where the cursor advances.
+_TERMINATOR_RE = re.compile("(" + "|".join(re.escape(t) for t in TERMINATORS) + ")")
+
 _BOUNDARY_RE = re.compile(
     "("
     + "|".join(re.escape(t) for t in TERMINATORS)
@@ -214,8 +314,47 @@ def iter_segments(text: str) -> Iterator[tuple[int, int]]:
     cursor = 0
     search = 0
     n = len(text)
+    # The next block boundary only ever moves forward, and it is always beyond
+    # the terminator just consumed. Rescanning from `search` on every terminator
+    # made this O(boundaries x lines) — 1.47M `_block_boundary_at` calls over the
+    # real corpus, 13x the whole scan. Carrying the pending block forward turns
+    # it into a single left-to-right pass, which is the same reason the
+    # terminator scan keeps its own `search` cursor.
+    pending_block = _next_block_boundary(text, 0, n)
     while search < n:
         match = _BOUNDARY_RE.search(text, search)
+        # Block markup is checked alongside the terminator scan, and whichever
+        # boundary comes first wins. Both live in this one loop because the
+        # cursor advances in exactly one place; splitting them into separate
+        # passes would mean merging two sorted offset streams, which is where
+        # offset bugs live.
+        if pending_block is not None and (match is None or pending_block[2] < match.start()):
+            consumed, kind, at = pending_block
+            # Emit everything accumulated before the block markup. A heading's
+            # *text* is authored, so it becomes its own segment running to
+            # end-of-line — markdown defines an ATX heading as exactly one line,
+            # and stopping at the terminator instead would run the heading
+            # together with the body below it.
+            chunk = text[cursor:at]
+            stripped = chunk.strip()
+            if stripped:
+                lead = len(chunk) - len(chunk.lstrip())
+                yield (cursor + lead, cursor + lead + len(stripped))
+            nl = text.find("\n", consumed)
+            line_end = n if nl == -1 else nl
+            if kind == "heading":
+                chunk = text[consumed:line_end]
+                stripped = chunk.strip()
+                if stripped:
+                    lead = len(chunk) - len(chunk.lstrip())
+                    yield (consumed + lead, consumed + lead + len(stripped))
+            cursor = line_end
+            search = line_end
+            # Re-arm from here. The next block boundary is strictly after the
+            # one just consumed, so this stays a single forward pass.
+            pending_block = _next_block_boundary(text, line_end, n)
+            continue
+
         if match is None:
             chunk = text[cursor:n]
             stripped = chunk.strip()

@@ -14,6 +14,21 @@ corpus → compiler → versioned artifact → witness → agent interrogation
        → belief revision → next version
 ```
 
+## Running it
+
+Requires Python 3.11+ and nothing else — the core has **no dependencies**, and
+no test or script reaches the network.
+
+```bash
+git clone https://github.com/kliewerdaniel/ganymede4
+cd ganymede4
+python -m pytest          # 417 tests, ~14s
+```
+
+`pip install -e .` is optional and currently only adds a broken console script
+(see *Known defect*, below). To build the real corpus artifact, see *Reproducing
+the artifact*.
+
 ## Status
 
 **Phase 13 — exporter structure is not the author.**
@@ -170,6 +185,74 @@ domain is permanent identity: it is fixed at first use and cannot be renamed
 after, exactly as a database table already written to cannot be. These strings
 predate the rename and stay.
 
+### Known defect: the console script points at a module that does not exist
+
+`[project.scripts]` in `pyproject.toml` declares:
+
+```toml
+ganymede4 = "ganymede4.cli:main"
+```
+
+**There is no `src/ganymede4/cli.py`.** The command has never worked — this
+predates the rename, which renamed the declaration but did not create the
+module behind it. The rename deliberately left it consistent-but-broken rather
+than half-fixed, because inventing a CLI surface is a design decision, not a
+rename. Until it is built, the entry point is `python -m pytest` and the
+`scripts/` directory.
+
+## Reproducing the artifact
+
+The 845 MB corpus database is a **derived output and is not in this
+repository**, by design. It is reproduced byte-for-byte from the sources plus
+this code, and an artifact you cannot reproduce is an artifact you cannot
+check. Committing the `.db` would also put a binary blob in a repository whose
+entire thesis is that a derived artifact should never be trusted over the
+inputs it came from.
+
+The corpus is read from its existing location and never copied here —
+`CORPUS_ROOT = ~/Projects/Chris` (`corpus/load.py`), 18,930 documents, 35.8 MB.
+It is the author's own public record, and it is not redistributed with the code.
+
+```bash
+# compile: ~135s, prints what came out and verifies the reversed-order root
+/tmp/sr312/bin/python scripts/compile_corpus.py --no-evaluate
+
+# independent audit: separate process, imports nothing from the package
+/tmp/sr312/bin/python scripts/audit_provenance.py /tmp/ganymede4-corpus.db
+```
+
+(`--db PATH` overrides the default `/tmp/ganymede4-corpus.db`; `--limit N`
+truncates, and the script warns that a limited run's machine/testimony ratio
+describes the sample, not the corpus.)
+
+Verified current output — the numbers this README quotes throughout:
+
+```
+version : v1-177a5ee5afaf63e8
+root    : 177a5ee5afaf63e8fc40088764fa8287...
+sources : 18,930
+claims  : 336,190
+evidence: 319,293
+dropped : 114,798 non-propositions
+reversed-order recompile identical : True
+
+auditor: clean True, exit 0, 0 span mismatches, 0 orphans — 4.4s
+```
+
+Two things to expect that look like failures and are not:
+
+- **The root is `177a5ee5afaf63e8`, not `973270e4465b2d3c` or `219a5b92284b3ae5`.**
+  Those are earlier builds. Any change to segmentation, proposition rules, or
+  the manifest schema changes the root, which is the correct behaviour — the
+  root is a function of the content.
+- **`114,798` dropped segments is the largest number in that output.** 22% of
+  the real corpus is not assertable prose. It is counted and reported, never
+  dropped silently (ADR-012).
+
+The auditor runs in seconds because ADR-014 made it set-based. On the
+pre-ADR-014 code it never completed at all — ~10^11 row visits, killed at
+14 minutes.
+
 Implemented so far:
 
 | Component | What it does | Where |
@@ -284,8 +367,7 @@ decision chain broken    →  execution refused before the backend is called
 malicious proposer       →  0 permitted, under a fully-granting policy
 permitted proposal       →  no claim, no evidence, no state written
 budget = 0               →  ValueError, not a silent empty run
-18,930 real documents    →  422,753 claims, identical root reversed
-evaluate_all on it       →  77 of 422,753 in 17 min; killed. See below.
+18,930 real documents    →  336,190 claims, identical root reversed
 conflict pair compiled   →  2 contradicted, 2 inconclusive, 0 supported
 one byte changed         →  new Merkle root
 same bytes, reordered    →  identical root
@@ -389,7 +471,11 @@ measured at 200/400/800 documents is 0.88×–1.37× per doubling, not the ≥2�
 a quadratic. Attestation sets are additionally stored once, content-addressed,
 rather than copied into every member's row.
 
-**Verified on the full corpus.** All 324,951 claims evaluated, end to end:
+**Verified on the full corpus.** All 324,951 claims evaluated, end to end.
+(The figures in this section are Phase 10's, measured on the 324,951-claim build
+that existed then. ADR-012 and ADR-015/016 later changed what the corpus
+segments into, so the current artifact is 336,190 claims — see *Reproducing
+the artifact* above. The before/after comparison below is what matters here.)
 
 | | before | after |
 |---|---|---|

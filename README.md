@@ -16,8 +16,8 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
-**Phase 5 — the policy gateway: no action without a decision, no decision
-without a record.** 252 tests passing on Python 3.12, stdlib-only, offline.
+**Phase 6 — execution: the first component that does something.** 278 tests
+passing on Python 3.12, stdlib-only, offline.
 
 Implemented so far:
 
@@ -36,9 +36,11 @@ Implemented so far:
 | Lexical retriever | Deterministic BM25, stdlib only, with the method id disclosed on every result | `witness/retrieval.py` |
 | The witness | A read-only, version-bound view that answers with typed, provenanced answers | `witness/witness.py` |
 | **The policy gateway** | Fail-closed authorization; decisions are content-addressed and hash-chained | `policy/gateway.py` |
+| **The executor** | Performs authorized actions and records them; re-checks the path against the real filesystem | `execution/executor.py` |
+| Sandboxes | Pluggable backends; the default is a no-op that says so | `execution/sandbox.py` |
 | Independent auditor | Separate process, stdlib only, imports nothing from the package — walks every claim to a source offset | `scripts/audit_provenance.py` |
 
-### The four rules that carry the thesis
+### The five rules that carry the thesis
 
 **The compiler cannot assign an epistemic state.** Every claim it writes is
 `UNEXAMINED`, enforced by a guard that raises if `COMPILE_PERMITTED_STATES` is
@@ -63,6 +65,29 @@ objected — [ADR-007](docs/adr/ADR-007-policy-gateway.md).
 > a grant names it. An allow-by-default system makes the safe path the one
 > nobody remembered to restrict, and a missing rule silently becomes a grant.
 
+**The executor cannot be lied to about where a path lands.** ADR-007's
+canonicalization is deliberately *lexical* — it never stats anything, so its
+verdict is reproducible — which means it cannot see that `/data/link` is a
+symlink to `/etc`. So the executor re-derives the check against the real
+filesystem at the last moment before the action, and refuses if the resolved
+path escapes the grant. **A request can be allowed by the gateway and denied by
+the executor.** That is not a contradiction; it is the deferral being honoured
+— [ADR-008](docs/adr/ADR-008-execution-and-audit.md).
+
+```
+gateway verdict : allow
+executor        : REFUSED — /private/etc/shadow is outside /…/data
+```
+
+Every authorized attempt produces a content-addressed `ExecutionRecord`,
+including the default no-op sandbox and including a point-of-use refusal. Only a
+*denial* produces none — nothing was attempted, and the decision chain already
+holds the record. `performed` and `degraded` are stored separately, because a
+no-op and a safety refusal are the two things an operator most needs to tell
+apart, and conflating them produces audit records that lie precisely when
+nobody can check them. `argv` is a list, there is no shell, and a test asserts
+`echo "hi; touch PWNED"` prints the semicolon rather than running it.
+
 Every decision is content-addressed and hash-chained, and **the chain covers the
 verdict and the reason, not just an id**. With the verdict excluded, flipping a
 recorded `DENY` to `ALLOW` and leaving the hash untouched verifies clean — that
@@ -79,6 +104,10 @@ evaluations deleted      →  clean: False  exit 1, 3 unjustified states
 gateway, no policy       →  DENY on every request
 /path traversal          →  DENY after canonicalization
 flipped verdict          →  chain fails to verify
+default executor         →  no-op, and a record saying so
+symlink escape           →  gateway ALLOW, executor REFUSED
+argv "; touch PWNED"     →  echoed as text; PWNED never created
+decision chain broken    →  execution refused before the backend is called
 conflict pair compiled   →  2 contradicted, 2 inconclusive, 0 supported
 one byte changed         →  new Merkle root
 same bytes, reordered    →  identical root

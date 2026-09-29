@@ -61,6 +61,19 @@ ATTESTING_FIXTURE = (
     "The model proposes and the deterministic policy decides what happens next.\n"
 )
 
+#: Polarity-flipped pairs. ADR-006 recognizes a contradiction only when the
+#: normalized term sets match and polarity is known on *both* sides, so a
+#: fixture needs matched pairs with an explicit negator, not merely different
+#: sentences. Used to cover the contradiction storage path.
+CONTRADICTED_FIXTURE = (
+    "The runtime is not deterministic in practice.\n"
+    "The runtime is deterministic in practice.\n"
+    "Provenance is not enforced at write time here.\n"
+    "Provenance is enforced at write time here.\n"
+    "The model is not the intelligence system.\n"
+    "The model is the intelligence system.\n"
+)
+
 #: Build a corpus of ``n`` *distinct* claims that all share a vocabulary.
 #:
 #: Duplication does not work here, and that is worth recording: claims are
@@ -111,7 +124,7 @@ def _compiled(tmp: str, content: str = SIZE_FIXTURE):
     return store, artifact, db
 
 
-class TestAttestationGroupStorage:
+class TestPeerGroupStorage:
     def test_the_read_api_is_unchanged(self, tmp_path):
         """Callers still see attesting claim ids, not group ids.
 
@@ -149,7 +162,7 @@ class TestAttestationGroupStorage:
                 f"expected a group id, found {raw[0][:60]!r}"
             )
             # and it resolves back to real claim ids
-            members = store._attestation_members(raw[0])
+            members = store._peer_members(raw[0])
             assert members and all(m.startswith("clm-") for m in members)
         finally:
             store.close()
@@ -164,27 +177,60 @@ class TestAttestationGroupStorage:
         store, artifact, db = _compiled(str(tmp_path), ATTESTING_FIXTURE)
         try:
             with pytest.raises(UnknownReference):
-                store._attestation_members("agr-0000000000000000")
+                store._peer_members("agr-0000000000000000")
         finally:
             store.close()
 
     def test_an_empty_attestation_set_stores_nothing(self, tmp_path):
         store, artifact, db = _compiled(str(tmp_path), ATTESTING_FIXTURE)
         try:
-            gid = store._put_attestation_group([])
+            gid = store._put_peer_group([])
             assert gid == ""
-            assert store._attestation_members("") == []
+            assert store._peer_members("") == []
         finally:
             store.close()
 
     def test_equivalent_sets_share_one_row(self, tmp_path):
         store, _artifact, _db = _compiled(str(tmp_path), ATTESTING_FIXTURE)
         try:
-            a = store._put_attestation_group(["clm-b", "clm-a"])
-            b = store._put_attestation_group(["clm-a", "clm-b"])
+            a = store._put_peer_group(["clm-b", "clm-a"])
+            b = store._put_peer_group(["clm-a", "clm-b"])
             assert a == b, "member order must not change a set's identity"
-            n = store.db.execute("SELECT COUNT(*) FROM attestation_groups").fetchone()[0]
+            n = store.db.execute("SELECT COUNT(*) FROM peer_groups").fetchone()[0]
             assert n == 1
+        finally:
+            store.close()
+
+    def test_contradictions_are_stored_as_a_peer_group_too(self, tmp_path):
+        """The same defect, on the other relation, found by the size ceiling.
+
+        ``contradicted_by`` was still being inlined into ``meta`` when the
+        full-corpus run produced records of 13,674 bytes containing nothing but
+        that list. It is an equivalence class like any other, so it gets the
+        same treatment. Only 52 contradicted records existed at the time, which
+        is exactly why a size test had to be the thing that noticed.
+        """
+        import json
+        store, artifact, _db = _compiled(str(tmp_path), CONTRADICTED_FIXTURE)
+        try:
+            verdicts = Evaluator(store, artifact.manifest).evaluate_all(apply=False)
+            contra = [v for v in verdicts if v.contradicted_by]
+            assert contra, "fixture produced no contradictions"
+            rows = store.evaluations_for(contra[0].subject_id)
+            assert rows
+            # hydrated back to ids for the reader
+            assert sorted(json.loads(rows[0]["contradicted_by"])) == sorted(
+                contra[0].contradicted_by
+            )
+            # and stored as a group id, not a list
+            raw = store.db.execute(
+                "SELECT contradicted_by FROM evaluations WHERE contradicted_by != '' LIMIT 1"
+            ).fetchone()
+            assert raw[0].startswith("agr-")
+            worst = store.db.execute("SELECT MAX(LENGTH(meta)) FROM evaluations").fetchone()[0]
+            assert worst is not None and worst < 512, (
+                f"largest meta is {worst:,} bytes; a peer list is being inlined again"
+            )
         finally:
             store.close()
 

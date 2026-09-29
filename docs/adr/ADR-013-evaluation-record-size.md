@@ -79,13 +79,20 @@ from the index.
 
 ## Decision
 
-1. **Attestation sets are content-addressed and stored once.** A new
-   `attestation_groups` table holds the canonical member list under an `agr-`
-   id; `evaluations.attested_by` stores that id. The read API is unchanged:
-   `Store.evaluations_for()` hydrates members back, so callers still see claim
-   ids. On the real corpus this turns N copies of a set into ~0.7N — small here,
-   but it removes a genuine quadratic term rather than leaving it to compound on
-   a corpus with larger classes.
+1. **Peer sets are content-addressed and stored once.** A `peer_groups` table
+   holds the canonical member list under an `agr-` id; `evaluations.attested_by`
+   and `evaluations.contradicted_by` store those ids. The read API is
+   unchanged: `Store.evaluations_for()` hydrates members back, so callers still
+   see claim ids in both columns.
+
+   *Amendment, same day.* `contradicted_by` was initially left inline in `meta`
+   on the reasoning that it was rare. The full-corpus run then produced records
+   of **13,674 bytes** containing nothing but that list — and only **52**
+   contradicted records existed at the time. It is the same equivalence class
+   with the same growth, and it was invisible precisely because it was rare.
+   "We only measured the common case" is how the common case gets fixed and the
+   uncommon one ships anyway. It now has its own column, its own group, and its
+   own test, which is confirmed to fail when the list is inlined again.
 
 2. **A neighbourhood is recorded by count and digest, not by membership.**
    `neighbours=<n>;neighbour_digest=<16 hex>`, where the digest is over the

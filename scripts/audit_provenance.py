@@ -103,38 +103,43 @@ def audit(db_path: str) -> dict[str, Any]:
         # the database without importing the store, so a bug in the store's
         # hydration cannot vouch for itself here.
         for ev in conn.execute(
-            "SELECT id, subject_id, relation, attested_by FROM evaluations"
-            " WHERE attested_by != ''"
+            "SELECT id, subject_id, relation, attested_by, contradicted_by"
+            " FROM evaluations WHERE attested_by != '' OR contradicted_by != ''"
         ).fetchall():
-            group = conn.execute(
-                "SELECT members FROM attestation_groups WHERE id = ?", (ev["attested_by"],)
-            ).fetchone()
-            if group is None:
-                report["unresolvable_attestation"].append(
-                    {"evaluation_id": ev["id"], "group": ev["attested_by"]}
-                )
-                continue
-            try:
-                members = json.loads(group["members"])
-            except (TypeError, ValueError):
-                report["unresolvable_attestation"].append(
-                    {"evaluation_id": ev["id"], "group": ev["attested_by"],
-                     "reason": "members are not valid JSON"}
-                )
-                continue
-            if not isinstance(members, list) or not members:
-                report["unresolvable_attestation"].append(
-                    {"evaluation_id": ev["id"], "group": ev["attested_by"],
-                     "reason": "attested relation with no attesting claims"}
-                )
-                continue
-            for member in members:
-                if conn.execute(
-                    "SELECT 1 FROM claims WHERE id = ?", (member,)
-                ).fetchone() is None:
+            for column, kind in (("attested_by", "attested"), ("contradicted_by", "contradicted")):
+                group_id = ev[column]
+                if not group_id:
+                    continue
+                group = conn.execute(
+                    "SELECT members FROM peer_groups WHERE id = ?", (group_id,)
+                ).fetchone()
+                if group is None:
                     report["unresolvable_attestation"].append(
-                        {"evaluation_id": ev["id"], "missing_claim": member}
+                        {"evaluation_id": ev["id"], "kind": kind, "group": group_id}
                     )
+                    continue
+                try:
+                    members = json.loads(group["members"])
+                except (TypeError, ValueError):
+                    report["unresolvable_attestation"].append(
+                        {"evaluation_id": ev["id"], "kind": kind, "group": group_id,
+                         "reason": "members are not valid JSON"}
+                    )
+                    continue
+                if not isinstance(members, list) or not members:
+                    report["unresolvable_attestation"].append(
+                        {"evaluation_id": ev["id"], "kind": kind, "group": group_id,
+                         "reason": f"{kind} relation with no peer claims"}
+                    )
+                    continue
+                for member in members:
+                    if conn.execute(
+                        "SELECT 1 FROM claims WHERE id = ?", (member,)
+                    ).fetchone() is None:
+                        report["unresolvable_attestation"].append(
+                            {"evaluation_id": ev["id"], "kind": kind,
+                             "missing_claim": member}
+                        )
     finally:
         conn.close()
 

@@ -376,8 +376,9 @@ class Evaluator:
             relation=relation.value,
             method=EVALUATOR_METHOD,
             attested_by=attested_by,
+            contradicted_by=contradicted_by,
             decided_at=transaction_time,
-            meta={"contradicted_by": list(contradicted_by), "investigation": investigated},
+            meta={"investigation": investigated},
         )
 
         if apply:

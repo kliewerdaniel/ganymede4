@@ -83,20 +83,21 @@ CREATE TABLE IF NOT EXISTS claims (
     meta           TEXT NOT NULL DEFAULT '{}'
 );
 
-CREATE TABLE IF NOT EXISTS attestation_groups (
+CREATE TABLE IF NOT EXISTS peer_groups (
     id       TEXT PRIMARY KEY,
     members  TEXT NOT NULL,
     size     INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS evaluations (
-    id           TEXT PRIMARY KEY,
-    subject_id   TEXT NOT NULL,
-    relation     TEXT NOT NULL,
-    method       TEXT NOT NULL,
-    attested_by  TEXT NOT NULL,
-    decided_at   TEXT NOT NULL,
-    meta         TEXT NOT NULL DEFAULT '{}'
+    id             TEXT PRIMARY KEY,
+    subject_id     TEXT NOT NULL,
+    relation       TEXT NOT NULL,
+    method         TEXT NOT NULL,
+    attested_by    TEXT NOT NULL,
+    contradicted_by TEXT NOT NULL DEFAULT '',
+    decided_at     TEXT NOT NULL,
+    meta           TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS claim_evidence (
@@ -368,6 +369,7 @@ class Store:
         attested_by: Sequence[str] = (),
         decided_at: str,
         meta: Mapping[str, Any] | None = None,
+        contradicted_by: Sequence[str] = (),
     ) -> str:
         """Record a verdict about a claim, returning its content id.
 
@@ -384,12 +386,19 @@ class Store:
             raise UnknownReference(f"no such claim: {subject_id}")
         meta = dict(meta or {})
 
-        # ADR-013: the attesting set is stored once, content-addressed, and
-        # referenced by id. Inlining it here cost 58 KB per row on the real
-        # corpus and reached 20 GB at 4% completion, because every member of an
+        # ADR-013: every peer list is stored once, content-addressed, and
+        # referenced by id. Inlining these cost 58 KB per row on the real corpus
+        # and reached 20 GB at 4% completion, because every member of an
         # equivalence class stores the same list. The record's *meaning* is
         # unchanged; only the representation is.
-        group_id = self._put_attestation_group(attested_by)
+        #
+        # `contradicted_by` is promoted out of `meta` for the same reason it
+        # needed promoting at all: it is an equivalence class like any other,
+        # and the full-corpus run showed records of 13,674 bytes carrying
+        # nothing but that list. Leaving it inline would have been fixing the
+        # symptom that was measured and ignoring the one that was not.
+        group_id = self._put_peer_group(attested_by)
+        contra_group_id = self._put_peer_group(contradicted_by)
 
         # The content id still covers the resolved member list, not the group
         # id, so a record's identity does not depend on how it happens to be
@@ -399,20 +408,23 @@ class Store:
             "relation": relation,
             "method": method,
             "attested_by": list(attested_by),
+            "contradicted_by": list(contradicted_by),
             "decided_at": decided_at,
             "meta": meta,
         }
         vid = content_id(rec, prefix="evl-")
         self.db.execute(
             "INSERT OR IGNORE INTO evaluations"
-            " (id, subject_id, relation, method, attested_by, decided_at, meta)"
-            " VALUES (?,?,?,?,?,?,?)",
+            " (id, subject_id, relation, method, attested_by, contradicted_by,"
+            " decided_at, meta)"
+            " VALUES (?,?,?,?,?,?,?,?)",
             (
                 vid,
                 subject_id,
                 relation,
                 method,
                 group_id,
+                contra_group_id,
                 decided_at,
                 canonical_bytes(meta).decode(),
             ),
@@ -420,10 +432,10 @@ class Store:
         self.db.commit()
         return vid
 
-    def _put_attestation_group(self, attested_by: Sequence[str]) -> str:
+    def _put_peer_group(self, attested_by: Sequence[str]) -> str:
         """Store an attesting set once and return its content id.
 
-        The empty set gets the empty id, so a non-attested relation writes
+        The empty set gets the empty id, so a relation with no peers writes
         nothing and its ``attested_by`` stays falsy — which is what
         ``Evaluation.__post_init__`` checks.
         """
@@ -432,13 +444,13 @@ class Store:
             return ""
         gid = content_id({"members": members}, prefix="agr-")
         self.db.execute(
-            "INSERT OR IGNORE INTO attestation_groups (id, members, size) VALUES (?,?,?)",
+            "INSERT OR IGNORE INTO peer_groups (id, members, size) VALUES (?,?,?)",
             (gid, canonical_bytes(members).decode(), len(members)),
         )
         return gid
 
-    def _attestation_members(self, group_id: str) -> list[str]:
-        """Resolve a group id back to its members, or raise.
+    def _peer_members(self, group_id: str) -> list[str]:
+        """Resolve a group id back to its peer ids, or raise.
 
         An unresolvable group is a hard error rather than an empty list. An
         empty list would make a ``SUPPORTED`` claim read as unattested, and
@@ -449,27 +461,29 @@ class Store:
         if not group_id:
             return []
         row = self.db.execute(
-            "SELECT members FROM attestation_groups WHERE id = ?", (group_id,)
+            "SELECT members FROM peer_groups WHERE id = ?", (group_id,)
         ).fetchone()
         if row is None:
             raise UnknownReference(
-                f"evaluation references attestation group {group_id!r}, "
+                f"evaluation references peer group {group_id!r}, "
                 "which does not exist"
             )
         return list(json.loads(row["members"]))
 
     def evaluations_for(self, subject_id: str) -> list[sqlite3.Row]:
-        """Evaluations for a claim, with ``attested_by`` hydrated to members.
+        """Evaluations for a claim, with peer lists hydrated to member ids.
 
-        Callers see the attesting claim ids, exactly as before ADR-013. The
-        group indirection is a storage detail and is not leaked to readers.
+        Callers see the attesting and contradicting claim ids, exactly as
+        before ADR-013. The group indirection is a storage detail and is not
+        leaked to readers.
         """
         cur = self.db.execute(
             "SELECT * FROM evaluations WHERE subject_id = ? ORDER BY id", (subject_id,)
         )
         hydrated = []
         for row in cur.fetchall():
-            members = self._attestation_members(row["attested_by"])
+            members = self._peer_members(row["attested_by"])
+            contra = self._peer_members(row["contradicted_by"])
             hydrated.append(
                 _HydratedEvaluation(
                     id=row["id"],
@@ -477,6 +491,7 @@ class Store:
                     relation=row["relation"],
                     method=row["method"],
                     attested_by=canonical_bytes(members).decode(),
+                    contradicted_by=canonical_bytes(contra).decode(),
                     decided_at=row["decided_at"],
                     meta=row["meta"],
                 )

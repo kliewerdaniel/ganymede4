@@ -1,4 +1,4 @@
-# Sovereign Knowledge & Agent Runtime
+# ganymede4
 
 **A local intelligence system is not a model. It is a governed runtime in which a model is
 one probabilistic component.**
@@ -16,8 +16,20 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
-**Phase 7 — the runtime: it proposes, and it cannot write.** 296 tests
-passing on Python 3.12, stdlib-only, offline.
+**Phase 8 — the corpus: ganymede4, built on its author's own record.**
+322 tests passing on Python 3.12, stdlib-only, offline.
+
+**The project is `ganymede4`** — the fourth attempt at the same problem in this
+lineage, and the succession is the point. Apache-2.0 and clean-room: it is not
+a fork of any predecessor, and nothing has been copied from `ganymede3`, which
+remains an unlicensed read-only design reference per ADR-001.
+
+**The corpus is 18,930 documents of KonradFreeman's own public record** — 2,178
+Reddit comments, 676 submissions, and 562 ChatGPT conversations, read from
+their existing location and never committed to the repository. It is the
+natural test of the thesis: one person arguing with strangers about whether
+models are the intelligence system, while simultaneously doing exactly that
+argument with models.
 
 Implemented so far:
 
@@ -133,6 +145,8 @@ decision chain broken    →  execution refused before the backend is called
 malicious proposer       →  0 permitted, under a fully-granting policy
 permitted proposal       →  no claim, no evidence, no state written
 budget = 0               →  ValueError, not a silent empty run
+18,930 real documents    →  422,753 claims, identical root reversed
+evaluate_all on it       →  77 of 422,753 in 17 min; killed. See below.
 conflict pair compiled   →  2 contradicted, 2 inconclusive, 0 supported
 one byte changed         →  new Merkle root
 same bytes, reordered    →  identical root
@@ -160,8 +174,39 @@ Implementation of each fork is gated on its ADR in `docs/adr/`:
 | 2 | **Claim-state vocabulary** | **RATIFIED** — [ADR-002](docs/adr/ADR-002-epistemic-state-vocabulary.md). ADR 002/011 spine + `DERIVED`/`ASSUMED` = 13 states. `UNRESOLVED` and `INCONCLUSIVE` stay distinct. The brief's list is rejected: it cannot express "searched and found nothing". |
 | 3 | **`ganymede3` duplicate claim models** | **RATIFIED** — [ADR-003](docs/adr/ADR-003-storage-and-single-claim-model.md). One model, content-addressed. The duplicate is not inherited because `ganymede3` is read-not-vendored. |
 | 4 | **Storage** | **RATIFIED** — ADR-003. stdlib `sqlite3`, no ORM. Foreign keys enforced. |
-| 5 | **Name** | Open — cosmetic, but do it before publication. |
-| 6 | **Demo corpus** | Open — smoke corpus used for the vertical slice; the 123k-chunk run is the later demonstration. |
+| 5 | **Name** | **RATIFIED** — [ADR-010](docs/adr/ADR-010-name-and-corpus.md). **`ganymede4`**, the fourth attempt at this problem in the lineage. Clean-room: not a fork, nothing copied from `ganymede3`. |
+| 6 | **Demo corpus** | **RATIFIED** — ADR-010. **18,930 documents of the author's own record** — 2,178 Reddit comments, 676 submissions, 562 ChatGPT conversations. Never committed; read from its existing location. 44% of it is a model's prior output and is typed as such, because ingesting it as testimony would launder a machine's assertion into the historical record with a perfect source span. |
+
+## Known limitation: the evaluator does not scale to the real corpus
+
+Running the real 18,930-document corpus found a defect that 315 fixture-scale
+tests did not, which is the argument for using real data at all.
+
+`Evaluator.evaluate` ends its common case by asking the retriever for
+`limit=len(self._index)` — **every document in the corpus** — in order to decide
+which are neighbours of the claim being judged. Fine for one claim. For
+`evaluate_all` it is the whole corpus, per claim.
+
+| sources | ms per source |
+|---|---|
+| 50 | 3.0 |
+| 200 | 4.1 |
+| 400 | 7.7 |
+
+On the real corpus it produced **77 evaluation records out of 422,753 claims in
+17 minutes**, and was killed. The compile itself is healthy: 18,930 sources →
+422,753 claims, **identical Merkle root on a reversed-order recompile**.
+
+The obvious fix — a smaller `limit` — was deliberately not applied blind. It
+would quietly turn "material in the neighbourhood" from a completeness property
+into a top-k approximation, in the one component whose justification is that it
+does not over-claim. That trade is about meaning, not performance, and belongs
+in its own ADR with the recall cost measured rather than assumed.
+
+Until then `compile_corpus.py` **refuses** a full-corpus evaluation outright
+rather than hanging — `--no-evaluate`, or `--yes-really-evaluate` if you mean it.
+`tests/test_scaling.py` pins the offending line and the cost-curve shape, so
+the defect cannot be silently reintroduced.
 
 ## The principle, stated once
 

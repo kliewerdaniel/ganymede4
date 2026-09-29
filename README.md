@@ -16,6 +16,46 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
+**Phase 12 — a control character is a boundary, not content.**
+400 tests passing on Python 3.12, stdlib-only, offline.
+
+The real corpus has one NUL byte, at character 242,506 of a 415,353-character
+ChatGPT export, inside `⇡ =E⇡ ⇥\x001 +`. `⇡` is the private-use glyph a PDF
+extractor emits for ψ — the byte is where a paper's font encoding lost a glyph
+index. It produced three claims, all fragments of a figure, all of which
+slipped past ADR-012 because that test is *length and letters* and these
+fragments are long and alphabetically rich. Being garbage is not the same as
+being short.
+
+[ADR-015](docs/adr/ADR-015-control-characters.md): a C0/C1 control is now a
+hard segment boundary, and a segment containing one is never a proposition.
+
+Two answers were rejected by name, and the second is the dangerous one:
+
+- **Reject the source.** One bad byte at 58% through the document would discard
+  172,847 characters of real record.
+- **Strip the byte.** Looks harmless, is not: in a content-addressed store,
+  source content *is* the identity. Editing it after the fact invalidates every
+  derived content id, invisibly — the store would report a clean audit of bytes
+  that no longer exist.
+
+The fence *recovers* text rather than discarding it. The old code made one
+giant segment across the NUL that failed the length test and was dropped whole,
+taking real text on both sides with it:
+
+```
+claims  324,951 -> 324,982   (+31 recovered)
+dropped 94,480  -> 94,598
+root    973270e4465b2d3c -> 219a5b92284b3ae5
+```
+
+Claims containing a control character: **0**. Audit clean, exit 0. Segmentation
+is byte-identical on clean input, verified by stashing the change and diffing —
+without that check, a boundary added to a segmenter is indistinguishable from a
+silent offset shift across the whole corpus.
+
+## Earlier status
+
 **Phase 11 — the auditor runs, and stops lying.**
 375 tests passing on Python 3.12, stdlib-only, offline.
 

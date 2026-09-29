@@ -24,7 +24,15 @@ import re
 from dataclasses import dataclass
 from typing import Iterator
 
-__all__ = ["Segment", "segment", "iter_segments", "TERMINATORS", "ABBREVIATIONS"]
+__all__ = [
+    "Segment",
+    "segment",
+    "iter_segments",
+    "is_proposition",
+    "contains_control",
+    "TERMINATORS",
+    "ABBREVIATIONS",
+]
 
 #: Sentence terminators, longest-first so that "?!" and ".\"" are matched
 #: before "." and the offset arithmetic stays correct.
@@ -49,7 +57,59 @@ ABBREVIATIONS = frozenset(
     }
 )
 
+#: C0 control characters that terminate a segment on sight (ADR-015).
+#:
+#: Whitespace controls (tab, newline, carriage return) are excluded: they are
+#: ordinary text layout, and ``str.strip()` already handles them at the edges.
+#: Everything else in C0 is not layout — it is a byte that some tool emitted by
+#: accident. In the real corpus a NUL appears at character 242,506 of one
+#: ChatGPT export, in the middle of `⇡ =E⇡ ⇥\x001 +`, which is a PDF's font
+#: encoding losing a glyph index (⇡ is the private-use glyph for ψ).
+#:
+#: This is a *segmentation* boundary rather than a source rejection. The source
+#: is 415,353 characters of which exactly one byte is bad; discarding the whole
+#: document to avoid that byte would destroy 172,847 characters of real record
+#: over a single encoding accident. And stripping the byte is not available
+#: either — in a content-addressed store the source content *is* the identity,
+#: so editing it silently would invalidate every content id derived from it.
+#:
+#: So the source stays byte-exact, the corrupt region is fenced off as segments
+#: that cannot become claims, and the surrounding text compiles normally.
+CONTROL_BOUNDARIES = frozenset(chr(c) for c in range(0x20) if chr(c) not in "\t\n\r") | {
+    "\x7f",  # DEL
+    "\x85",  # C1 NEL
+    "\x9f",  # C1 APC-string terminator
+}
+
+
+def contains_control(text: str) -> bool:
+    """True if ``text`` holds a C0/C1 control character.
+
+    A segment containing one of these is not a proposition and never will be:
+    the character is a defect in how the text was produced, not something the
+    author wrote. A NUL in particular is load-bearing for C-string tools —
+    SQLite's ``substr()``, most C extensions, and ``curses`` all stop reading
+    at the first one, which is how ADR-014's auditor reported 1,434 span
+    mismatches on a perfectly clean artifact.
+    """
+    return any(ch in CONTROL_BOUNDARIES for ch in text)
+
+
 _TERMINATOR_RE = re.compile("(" + "|".join(re.escape(t) for t in TERMINATORS) + ")")
+
+#: Terminators *or* control characters — every place a segment may end.
+#:
+#: Control characters are part of the alternation rather than a separate pass
+#: so that offset arithmetic stays in one place. A separate scan would have to
+#: merge two sorted boundary streams, and merging boundary streams is exactly
+#: where offset bugs live.
+_BOUNDARY_RE = re.compile(
+    "("
+    + "|".join(re.escape(t) for t in TERMINATORS)
+    + "|"
+    + "|".join(re.escape(ch) for ch in sorted(CONTROL_BOUNDARIES))
+    + ")"
+)
 
 
 #: The shortest a claim may be and still be a proposition someone could assert.
@@ -65,7 +125,6 @@ MIN_CLAIM_CHARS = 25
 #: and none of them is a proposition in any language this system reads. A
 #: segment with no letters is not a weak claim, it is not a claim.
 MIN_CLAIM_LETTERS = 1
-
 
 def is_proposition(text: str) -> bool:
     """True if ``text`` is something a person could assert.
@@ -83,6 +142,8 @@ def is_proposition(text: str) -> bool:
     """
     stripped = text.strip()
     if len(stripped) < MIN_CLAIM_CHARS:
+        return False
+    if contains_control(stripped):
         return False
     letters = sum(1 for ch in stripped if ch.isalpha())
     return letters >= MIN_CLAIM_LETTERS
@@ -154,7 +215,7 @@ def iter_segments(text: str) -> Iterator[tuple[int, int]]:
     search = 0
     n = len(text)
     while search < n:
-        match = _TERMINATOR_RE.search(text, search)
+        match = _BOUNDARY_RE.search(text, search)
         if match is None:
             chunk = text[cursor:n]
             stripped = chunk.strip()
@@ -164,6 +225,20 @@ def iter_segments(text: str) -> Iterator[tuple[int, int]]:
             return
 
         end = match.end()
+        # A control character is a hard boundary (ADR-015). It ends the segment
+        # *and* is excluded from it, so the corrupt byte never lands inside a
+        # claim's text. The `while` below then skips any terminators, quotes, or
+        # further controls immediately following it.
+        if match.group() in CONTROL_BOUNDARIES:
+            chunk = text[cursor : match.start()]
+            stripped = chunk.strip()
+            if stripped:
+                lead = len(chunk) - len(chunk.lstrip())
+                yield (cursor + lead, cursor + lead + len(stripped))
+            cursor = end
+            search = end
+            continue
+
         # An abbreviation dot is not a boundary. Advance only the *search*;
         # `cursor` stays put so the text up to the real boundary (abbreviation
         # included) stays in this chunk. An ellipsis, by contrast, does end the

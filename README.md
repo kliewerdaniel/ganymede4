@@ -276,6 +276,26 @@ measured at 200/400/800 documents is 0.88×–1.37× per doubling, not the ≥2�
 a quadratic. Attestation sets are additionally stored once, content-addressed,
 rather than copied into every member's row.
 
+**Verified on the full corpus.** All 324,951 claims evaluated, end to end:
+
+| | before | after |
+|---|---|---|
+| per evaluation | 58,345 B | ~390 B |
+| largest `meta` | 13,674 B | **71 B** |
+| at 4% complete | **20.2 GB, disk full** | 540 MB |
+| full run | never finished | **797 MB** |
+| evaluations written | 17,691 | **308,935** |
+
+```
+claims  : 324,951      inconclusive : 156,907
+dropped :  94,480      supported     : 151,382
+evidence: 308,935      derived       :  16,016
+peer groups: 151,488   contradicted  :    646
+```
+
+Zero claims left `unexamined`. A 56× reduction is only interesting because the
+thing it made possible was finishing: the previous run never reached 5%.
+
 Three things this cost, all worth recording:
 
 - **The first hypothesis was wrong.** The obvious suspect, `attested_by`, is
@@ -292,6 +312,12 @@ Three things this cost, all worth recording:
 - **ADR-011's claim of linearity was narrower than it read.** It made retrieval
   linear. Storing was a separate problem in a separate layer, found only by
   running the thing at the size it was meant to run at.
+- **The size ceiling then caught a second copy of the same bug.** After the fix,
+  `contradicted_by` was still inlined into `meta` — records of 13,674 bytes
+  containing nothing but that list. It was invisible because only 52 of 45,393
+  records were contradicted. Fixing the common case and leaving the rare one is
+  how the rare one ships; it now has a column, a peer group, and a test
+  confirmed to fail when the list is inlined again.
 
 ## The principle, stated once
 

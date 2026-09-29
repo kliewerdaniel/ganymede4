@@ -38,33 +38,9 @@ def main() -> int:
     parser.add_argument(
         "--no-evaluate",
         action="store_true",
-        help="skip the evaluation pass (required for a full run; see ADR-010)",
-    )
-    parser.add_argument(
-        "--yes-really-evaluate",
-        action="store_true",
-        help="acknowledge that evaluate_all is super-linear and will not finish",
+        help="skip the evaluation pass; still useful when you only want the artifact",
     )
     args = parser.parse_args()
-
-    # Fail loudly rather than letting a full run hang. `Evaluator.evaluate`
-    # asks the retriever for the entire index per claim, so `evaluate_all` is
-    # super-linear: on the real corpus it managed 77 of 422,753 claims in 17
-    # minutes. See ADR-010. Making that a flag error rather than a warning is
-    # the difference between a fast refusal and a long wait for nothing.
-    if not args.no_evaluate and args.limit is None and not args.yes_really_evaluate:
-        print(
-            "refusing to run evaluate_all over the full corpus.\n"
-            "\n"
-            "  Evaluator.evaluate searches the ENTIRE index per claim, so the\n"
-            "  pass is super-linear. On the real corpus it produced 77 of\n"
-            "  422,753 claims in 17 minutes before being killed.\n"
-            "\n"
-            "  Use --no-evaluate, or --limit N, or pass --yes-really-evaluate\n"
-            "  if you mean it. See docs/adr/ADR-010-name-and-corpus.md",
-            file=sys.stderr,
-        )
-        return 2
 
     print("=" * 68)
     print("ganymede4 — compile the real corpus")

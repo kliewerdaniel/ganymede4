@@ -84,19 +84,19 @@ look more epistemically clean than it is. The honest move is to keep the turns
 and mark them, so that the artifact records the full history *including* the
 part that is a machine talking.
 
-## Finding: the evaluator does not scale to this corpus
+## Finding: the evaluator did not scale to this corpus — now fixed
 
-Running the full pipeline on the real corpus surfaced a defect that no amount
-of fixture testing would have found, which is the argument for using real data
-in the first place.
+Running the full pipeline on the real corpus surfaced a defect that no amount of
+fixture testing would have found, which is the argument for using real data in
+the first place.
 
-`Evaluator.evaluate` ends its common case with:
+`Evaluator.evaluate` ended its common case with:
 
 ```python
 hits = self._index.search(text, limit=len(self._index) or 1)
 ```
 
-It asks the retriever for **every document in the index** in order to decide
+It asked the retriever for **every document in the index** in order to decide
 which are *neighbours* of the claim being judged. For one claim that is
 tolerable. For `evaluate_all` it is the whole corpus, per claim, so the pass is
 super-linear in corpus size.
@@ -111,30 +111,22 @@ Measured on synthetic corpora of identical structure, cost per source:
 | 400 | 7.7 |
 
 Per-source cost roughly doubles as the corpus doubles, which is the signature
-of the quadratic term. On the real corpus this does not degrade gracefully —
+of the quadratic term. On the real corpus this did not degrade gracefully —
 after 17 minutes it had written **77 evaluation records out of 422,753
-claims**, and I killed it. The compile itself is fine: 18,930 sources produced
-422,753 claims with 84,587+ evidence rows and an identical Merkle root on a
-reversed-order recompile.
+claims**, and I killed it.
 
-The fix is obvious and was deliberately not applied blind: a neighbour search
-does not need the whole index, and the honest question is what bound preserves
-the *semantics* rather than just making the number smaller. Narrowing the
-`limit` to a constant would be the quick version, and it would quietly change
-what "there is material in the neighbourhood" means — turning a completeness
-property into a top-k approximation, in a component whose entire justification
-is that it is sound and does not over-claim. That trade needs to be decided on
-the merits, in its own ADR, with the recall consequence measured rather than
-assumed.
+**Resolved by ADR-011.** The fix was not a smaller `limit`, which would have
+traded a completeness property for speed in the one component whose
+justification is that it does not over-claim. The evaluator was asking a
+*membership* question — "is the neighbourhood empty, and which ids are in it" —
+using a *ranking* method, and nothing ever looked at a neighbour's score. So
+`BM25` gained an inverted index and a `matching_docs` method returning the same
+set in time proportional to the postings touched. The equivalence is exact
+because every idf in this implementation is strictly positive, and that is
+asserted by a test rather than assumed.
 
-Until then: `evaluate_all` is **not** run against the full corpus, and
-`scripts/compile_corpus.py` requires `--no-evaluate` for a full run. The
-component is correct and tested at fixture scale; it is not yet correct at
-corpus scale, and the README says so rather than implying otherwise.
-
-This is recorded as a known limitation rather than quietly fixed because the
-fix trades a completeness guarantee for speed, and that is a decision about
-meaning, not performance.
+The refusal to fix it blind was right about the naive fix and wrong to leave
+the question open, because the question had an exact answer.
 
 ## Consequences
 

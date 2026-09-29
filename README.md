@@ -177,36 +177,42 @@ Implementation of each fork is gated on its ADR in `docs/adr/`:
 | 5 | **Name** | **RATIFIED** — [ADR-010](docs/adr/ADR-010-name-and-corpus.md). **`ganymede4`**, the fourth attempt at this problem in the lineage. Clean-room: not a fork, nothing copied from `ganymede3`. |
 | 6 | **Demo corpus** | **RATIFIED** — ADR-010. **18,930 documents of the author's own record** — 2,178 Reddit comments, 676 submissions, 562 ChatGPT conversations. Never committed; read from its existing location. 44% of it is a model's prior output and is typed as such, because ingesting it as testimony would launder a machine's assertion into the historical record with a perfect source span. |
 
-## Known limitation: the evaluator does not scale to the real corpus
+## Resolved: the evaluator now scales to the real corpus
 
-Running the real 18,930-document corpus found a defect that 315 fixture-scale
-tests did not, which is the argument for using real data at all.
+Running the real 18,930-document corpus found a defect that 322 fixture-scale
+tests did not — which is the argument for using real data at all.
 
-`Evaluator.evaluate` ends its common case by asking the retriever for
+`Evaluator.evaluate` ended its common case by asking the retriever for
 `limit=len(self._index)` — **every document in the corpus** — in order to decide
-which are neighbours of the claim being judged. Fine for one claim. For
-`evaluate_all` it is the whole corpus, per claim.
+which claims were neighbours of the claim under judgement. Fine for one claim.
+For `evaluate_all` it was the whole corpus, each time. It produced **77
+evaluation records out of 422,753 claims in 17 minutes**, and was killed.
 
-| sources | ms per source |
-|---|---|
-| 50 | 3.0 |
-| 200 | 4.1 |
-| 400 | 7.7 |
+The obvious fix — a smaller `limit` — was refused, because it would quietly
+turn *"material in the neighbourhood"* from a completeness property into a top-k
+approximation, in the one component whose justification is that it does not
+over-claim.
 
-On the real corpus it produced **77 evaluation records out of 422,753 claims in
-17 minutes**, and was killed. The compile itself is healthy: 18,930 sources →
-422,753 claims, **identical Merkle root on a reversed-order recompile**.
+The right fix was to notice the evaluator was asking a **membership** question
+using a **ranking** method. Nothing downstream ever looked at a neighbour's
+score; the answer was only "is it empty, and which ids are in it". So `BM25`
+gained an inverted index and `matching_docs`, which returns **exactly the same
+set** in time proportional to the postings touched — [ADR-011](docs/adr/ADR-011-bounded-neighbourhood-search.md).
 
-The obvious fix — a smaller `limit` — was deliberately not applied blind. It
-would quietly turn "material in the neighbourhood" from a completeness property
-into a top-k approximation, in the one component whose justification is that it
-does not over-claim. That trade is about meaning, not performance, and belongs
-in its own ADR with the recall cost measured rather than assumed.
+The equivalence is exact rather than approximate because every idf in this
+implementation is strictly positive, so `score > 0` means precisely "shares a
+term". That precondition is asserted by a test rather than assumed, and
+`tests/test_scaling.py` now checks the fast path against the ranking pass on
+real vocabulary with adversarial queries.
 
-Until then `compile_corpus.py` **refuses** a full-corpus evaluation outright
-rather than hanging — `--no-evaluate`, or `--yes-really-evaluate` if you mean it.
-`tests/test_scaling.py` pins the offending line and the cost-curve shape, so
-the defect cannot be silently reintroduced.
+No document is dropped that was not already dropped, so **no verdict can
+change**. Recall was preserved, not spent.
+
+> A test here earned its keep by being *wrong*. The first version pinned the
+> buggy line by substring, so after the fix it still passed — the line had
+> survived in the comment explaining the replacement. It was guarding a prose
+> description of the bug instead of the bug's absence. The assertion is now
+> AST-based, so no comment or docstring can satisfy it.
 
 ## The principle, stated once
 

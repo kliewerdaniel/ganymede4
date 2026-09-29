@@ -145,9 +145,59 @@ class BM25:
             for term, freq in df.items()
         }
         self._df = df
+        # Inverted index: term -> the documents containing it, sorted.
+        #
+        # This exists so a *membership* question can be answered without a
+        # *ranking* pass over the whole corpus. `search` is O(corpus) because it
+        # must score every document to rank them; `matching_docs` is O(postings
+        # touched) because the answer is a set, and a set does not need an
+        # order. See ADR-011 for why the two are exactly equivalent here.
+        #
+        # Built from the same tokenization as `_tf`, so the two structures
+        # cannot disagree about what a document contains.
+        postings: dict[str, list[str]] = {}
+        for doc_id in sorted(self._docs):
+            for term in self._tf[doc_id]:
+                postings.setdefault(term, []).append(doc_id)
+        self._postings: dict[str, tuple[str, ...]] = {
+            term: tuple(ids) for term, ids in postings.items()
+        }
 
     def __len__(self) -> int:
         return len(self._docs)
+
+    def matching_docs(self, query: str) -> tuple[str, ...]:
+        """Documents sharing at least one query term. A set, not a ranking.
+
+        This is **exact**, not an approximation of ``search``'s result set, and
+        the equivalence is what makes ADR-011 a fix rather than a trade:
+
+            a document is returned by `search`  <=>  it shares a term with query
+
+        The forward direction is immediate. The reverse holds because every idf
+        in this implementation is strictly positive —
+        ``log((N - df + 0.5) / (df + 0.5) + 1) > 0`` for every legal
+        ``df in [1, N]`` — and every scoring term contributes
+        ``idf * tf * (k1 + 1) / denom`` with ``tf >= 1`` and ``denom > 0``. So a
+        document with at least one matching term has ``score > 0``, which is
+        precisely the filter `search` applies.
+
+        **This equivalence depends on every idf being positive.** If the floored
+        Robertson form is ever reintroduced, ``score > 0`` stops meaning "shares
+        a term" and this method silently diverges from `search`. That coupling
+        is asserted by a test rather than left as a comment.
+
+        Sorted, so the result is reproducible. Duplicates are collapsed by
+        construction: a document appearing in several postings is only listed
+        once.
+        """
+        terms = tokenize(query)
+        if not terms:
+            return ()
+        found: set[str] = set()
+        for term in set(terms):
+            found.update(self._postings.get(term, ()))
+        return tuple(sorted(found))
 
     def search(self, query: str, limit: int = 10) -> list[ScoredDoc]:
         """Return up to ``limit`` documents, best first.

@@ -151,6 +151,59 @@ class Evaluator:
                 self._texts[cid] = row["text"]
                 self._norms[cid] = normalize(row["text"])
         self._index = BM25(self._texts)
+        self._build_candidate_indexes()
+
+    def _build_candidate_indexes(self) -> None:
+        """Two indexes so the hot predicates stop scanning the whole corpus.
+
+        Both `_contradictions` and `_attestations` are *equivalence-class*
+        questions, and each was answering it by iterating every claim in the
+        version — twice per claim, which is what made `evaluate_all` quadratic
+        (ADR-011). Indexing by the key each predicate actually compares on
+        turns a corpus scan into a dictionary lookup, without changing which
+        peers are considered.
+
+        The two are not symmetric, and the difference matters:
+
+        ``_by_terms`` is **exact.** Contradiction requires
+        ``norm.terms == subject.terms``, so a claim whose term set differs
+        cannot contradict and its absence from this bucket is not a loss.
+
+        ``_by_first_token`` is a **superset filter.** Attestation requires the
+        subject's whole sequence to appear contiguously in the peer, so the
+        peer must start with the same first token — but sharing a first token
+        is necessary, not sufficient, and `is_contiguous_in` still runs over
+        what the index returns. An index for a subsequence-style predicate can
+        rule candidates out; it cannot rule them in, and this does not pretend
+        otherwise.
+        """
+        by_terms: dict[frozenset[str], list[str]] = {}
+        by_first: dict[str, list[str]] = {}
+        for cid in sorted(self._norms):
+            norm = self._norms[cid]
+            by_terms.setdefault(norm.terms, []).append(cid)
+            if norm.sequence:
+                by_first.setdefault(norm.sequence[0], []).append(cid)
+        self._by_terms = {k: tuple(v) for k, v in by_terms.items()}
+        self._by_first_token = {k: tuple(v) for k, v in by_first.items()}
+
+    def _term_peers(self, subject_id: str, subject: Normalized) -> list[str]:
+        """Claims sharing the subject's exact term set. Excludes the subject.
+
+        Excluded here rather than at the call site, because the self-exclusion
+        is what makes self-attestation structurally impossible, and a filter
+        that a future caller could forget to apply is not a guarantee.
+        """
+        return [c for c in self._by_terms.get(subject.terms, ()) if c != subject_id]
+
+    def _token_peers(self, subject_id: str, subject: Normalized) -> list[str]:
+        """Claims starting with the subject's first token. Excludes the subject.
+
+        A superset of the true attesters; the contiguity test filters it.
+        """
+        if not subject.sequence:
+            return []
+        return [c for c in self._by_first_token.get(subject.sequence[0], ()) if c != subject_id]
 
     @property
     def version(self) -> str:
@@ -171,8 +224,8 @@ class Evaluator:
         """Claims whose text contains the subject's proposition, contiguously."""
         return [
             cid
-            for cid, norm in self._peers(subject_id)
-            if subject.is_contiguous_in(norm)
+            for cid in self._token_peers(subject_id, subject)
+            if subject.is_contiguous_in(self._norms[cid])
         ]
 
     def _contradictions(self, subject_id: str, subject: Normalized) -> list[str]:
@@ -186,7 +239,8 @@ class Evaluator:
         if not subject.polarity_known:
             return []
         out: list[str] = []
-        for cid, norm in self._peers(subject_id):
+        for cid in self._term_peers(subject_id, subject):
+            norm = self._norms[cid]
             if not norm.polarity_known:
                 continue
             if norm.terms == subject.terms and norm.polarity != subject.polarity:
@@ -242,8 +296,16 @@ class Evaluator:
 
         # Something is in the neighborhood but it establishes nothing. This is
         # the common case and it is a real answer, not a failure.
-        hits: list[ScoredDoc] = self._index.search(text, limit=len(self._index) or 1)
-        neighbours = [h.doc_id for h in hits if h.doc_id != claim_id]
+        #
+        # A *set* question, not a ranking one (ADR-011). Nothing downstream
+        # looks at a neighbour's score; the answer is only "is the
+        # neighbourhood empty, and which ids are in it". The previous code
+        # asked for `limit=len(self._index)` — every document in the corpus,
+        # per claim — to answer a yes/no, which is what made `evaluate_all`
+        # quadratic and unusable on a real corpus (77 of 422,753 claims in 17
+        # minutes). `matching_docs` returns exactly the same set in time
+        # proportional to the postings touched.
+        neighbours = [d for d in self._index.matching_docs(text) if d != claim_id]
         return self._record(
             claim_id,
             text,

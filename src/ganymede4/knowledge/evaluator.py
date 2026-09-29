@@ -269,13 +269,23 @@ class Evaluator:
         treated as "not negated" — that would let a claim with two stacked
         negators appear to contradict a plain one, which is the mirror image of
         the defect this module exists to prevent.
+
+        **Requires a non-empty term set** (ADR-020). An empty set is the
+        identity element for `==`, so two claims that normalize to *nothing*
+        compare equal — and a set-equality predicate is guaranteed to get an
+        identity element wrong. On the real corpus 186 of 221 Cyrillic claims
+        normalize to nothing (the tokenizer is ASCII-only), alongside English
+        boilerplate like "But that's not what this was."; those all share the
+        empty set, and one of them was marked CONTRADICTED by all 193 others.
+        Unrelated sentences in different languages do not contradict each
+        other, they merely cannot be compared.
         """
-        if not subject.polarity_known:
+        if not subject.polarity_known or not subject.terms:
             return []
         out: list[str] = []
         for cid in self._term_peers(subject_id, subject):
             norm = self._norms[cid]
-            if not norm.polarity_known:
+            if not norm.polarity_known or not norm.terms:
                 continue
             if norm.terms == subject.terms and norm.polarity != subject.polarity:
                 out.append(cid)

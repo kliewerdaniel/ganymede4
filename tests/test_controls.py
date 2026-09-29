@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from sovereign_runtime.compile.segment import (
+from ganymede4.compile.segment import (
     CONTROL_BOUNDARIES,
     contains_control,
     is_proposition,

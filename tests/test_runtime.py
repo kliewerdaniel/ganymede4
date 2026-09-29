@@ -23,23 +23,23 @@ from pathlib import Path
 
 import pytest
 
-from sovereign_runtime.compile.compiler import SourceSpec, compile_corpus
-from sovereign_runtime.knowledge.store import Store
-from sovereign_runtime.policy.gateway import (
+from ganymede4.compile.compiler import SourceSpec, compile_corpus
+from ganymede4.knowledge.store import Store
+from ganymede4.policy.gateway import (
     Capability,
     Policy,
     PolicyGateway,
     Request,
     Verdict,
 )
-from sovereign_runtime.runtime import loop as rt
-from sovereign_runtime.runtime.loop import (
+from ganymede4.runtime import loop as rt
+from ganymede4.runtime.loop import (
     Proposal,
     ProposalDisposition,
     RuleProposer,
     Runtime,
 )
-from sovereign_runtime.witness.witness import Witness
+from ganymede4.witness.witness import Witness
 
 PKG = Path(inspect.getfile(rt)).parent
 

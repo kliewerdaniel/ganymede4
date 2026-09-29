@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import pytest
 
-from sovereign_runtime.corpus import load as loader
-from sovereign_runtime.corpus.load import (
+from ganymede4.corpus import load as loader
+from ganymede4.corpus.load import (
     AUTHOR,
     MACHINE_TYPES,
     TESTIMONY_TYPES,

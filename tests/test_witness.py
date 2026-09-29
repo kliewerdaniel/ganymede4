@@ -16,11 +16,11 @@ import json
 
 import pytest
 
-from sovereign_runtime.compile.compiler import SourceSpec, compile_corpus
-from sovereign_runtime.knowledge.epistemic import EpistemicState
-from sovereign_runtime.knowledge.store import Store
-from sovereign_runtime.witness.retrieval import FUNCTION_WORDS, BM25, tokenize
-from sovereign_runtime.witness.witness import OutOfVersion, Witness, WitnessAnswer
+from ganymede4.compile.compiler import SourceSpec, compile_corpus
+from ganymede4.knowledge.epistemic import EpistemicState
+from ganymede4.knowledge.store import Store
+from ganymede4.witness.retrieval import FUNCTION_WORDS, BM25, tokenize
+from ganymede4.witness.witness import OutOfVersion, Witness, WitnessAnswer
 
 TT = "2026-09-28T00:00:00Z"
 
@@ -225,7 +225,7 @@ class TestProvenanceResolution:
         cid = w._manifest.claim_ids[0]
         store.db.execute("UPDATE evidence SET text = 'tampered'")
         store.db.commit()
-        from sovereign_runtime.witness.retrieval import ScoredDoc
+        from ganymede4.witness.retrieval import ScoredDoc
 
         with pytest.raises(AssertionError):
             w._resolve(cid, ScoredDoc(doc_id=cid, score=1.0, matched_terms=("x",)))
@@ -382,7 +382,7 @@ class TestRetrievalHonesty:
         assert [d.doc_id for d in results] == ["a", "b"]
 
     def test_method_id_is_disclosed(self, witness):
-        from sovereign_runtime.witness.retrieval import METHOD_ID
+        from ganymede4.witness.retrieval import METHOD_ID
 
         w, _store, _art = witness
         assert w.boundary().method == METHOD_ID

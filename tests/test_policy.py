@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from sovereign_runtime.policy import gateway as gw
-from sovereign_runtime.policy.gateway import (
+from ganymede4.policy import gateway as gw
+from ganymede4.policy.gateway import (
     Capability,
     ChainError,
     Decision,

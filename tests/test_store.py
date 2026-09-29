@@ -11,8 +11,8 @@ import sqlite3
 
 import pytest
 
-from sovereign_runtime.knowledge.epistemic import EpistemicState, MissingInvestigation
-from sovereign_runtime.knowledge.store import (
+from ganymede4.knowledge.epistemic import EpistemicState, MissingInvestigation
+from ganymede4.knowledge.store import (
     ProvenanceError,
     Store,
     UnknownReference,

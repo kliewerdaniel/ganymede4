@@ -22,11 +22,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sovereign_runtime.compile.compiler import SourceSpec, compile_corpus  # noqa: E402
-from sovereign_runtime.corpus import MACHINE_TYPES, corpus_stats, load_corpus  # noqa: E402
-from sovereign_runtime.knowledge.evaluator import Evaluator  # noqa: E402
-from sovereign_runtime.knowledge.store import Store  # noqa: E402
-from sovereign_runtime.witness.witness import Witness  # noqa: E402
+from ganymede4.compile.compiler import SourceSpec, compile_corpus  # noqa: E402
+from ganymede4.corpus import MACHINE_TYPES, corpus_stats, load_corpus  # noqa: E402
+from ganymede4.knowledge.evaluator import Evaluator  # noqa: E402
+from ganymede4.knowledge.store import Store  # noqa: E402
+from ganymede4.witness.witness import Witness  # noqa: E402
 
 TRANSACTION_TIME = "2026-09-28T00:00:00Z"
 

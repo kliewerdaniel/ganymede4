@@ -23,14 +23,14 @@ from pathlib import Path
 
 import pytest
 
-from sovereign_runtime.execution import executor as ex
-from sovereign_runtime.execution.executor import ExecutionRefused, Executor
-from sovereign_runtime.execution.sandbox import (
+from ganymede4.execution import executor as ex
+from ganymede4.execution.executor import ExecutionRefused, Executor
+from ganymede4.execution.sandbox import (
     NullSandbox,
     SandboxResult,
     SubprocessSandbox,
 )
-from sovereign_runtime.policy.gateway import (
+from ganymede4.policy.gateway import (
     Capability,
     Decision,
     Policy,

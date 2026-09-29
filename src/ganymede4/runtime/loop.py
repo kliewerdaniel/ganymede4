@@ -10,7 +10,7 @@ The rule from ``target-architecture.md`` §2, implemented literally:
 
     Nothing in L4 can write to L1.
 
-:class:`Runtime` holds a read-only :class:`~sovereign_runtime.witness.Witness`
+:class:`Runtime` holds a read-only :class:`~ganymede4.witness.Witness`
 and nothing else. It has **no reference to the store at all** — not "does not
 call" but "does not hold", so there is no call site to audit and no later
 refactor that can quietly add one. A test parses this module's AST and asserts

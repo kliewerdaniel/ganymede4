@@ -13,17 +13,17 @@ import json
 
 import pytest
 
-from sovereign_runtime.compile.compiler import SourceSpec, compile_corpus
-from sovereign_runtime.knowledge.epistemic import EpistemicState
-from sovereign_runtime.knowledge.evaluator import (
+from ganymede4.compile.compiler import SourceSpec, compile_corpus
+from ganymede4.knowledge.epistemic import EpistemicState
+from ganymede4.knowledge.evaluator import (
     EVALUATOR_METHOD,
     Evaluator,
     Relation,
     SelfAttestation,
     Verdict,
 )
-from sovereign_runtime.knowledge.normalize import NEGATION_UNKNOWN, normalize, stem
-from sovereign_runtime.knowledge.store import Store
+from ganymede4.knowledge.normalize import NEGATION_UNKNOWN, normalize, stem
+from ganymede4.knowledge.store import Store
 
 TT = "2026-09-28T00:00:00Z"
 

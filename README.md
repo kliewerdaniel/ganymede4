@@ -158,6 +158,18 @@ lineage, and the succession is the point. Apache-2.0 and clean-room: it is not
 a fork of any predecessor, and nothing has been copied from `ganymede3`, which
 remains an unlicensed read-only design reference per ADR-001.
 
+The name applies to the repository, the Python package (`ganymede4`), the
+`pyproject.toml` project name, and the `ganymede4` console script.
+
+It deliberately does **not** apply to the content-addressing domain strings —
+`sovereign-runtime/leaf/v1`, `sovereign-runtime/manifest/v1`, and their siblings
+in `core/content.py` and `compile/manifest.py`. Those are prefixes fed into the
+hash, so renaming them would change every claim id, evidence id, and the Merkle
+root, invalidating a 336,190-claim artifact that currently audits clean. A hash
+domain is permanent identity: it is fixed at first use and cannot be renamed
+after, exactly as a database table already written to cannot be. These strings
+predate the rename and stay.
+
 Implemented so far:
 
 | Component | What it does | Where |

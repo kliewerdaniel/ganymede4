@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from sovereign_runtime.compile.segment import is_proposition, segment
+from ganymede4.compile.segment import is_proposition, segment
 
 
 def texts(text: str) -> list[str]:

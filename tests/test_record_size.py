@@ -22,9 +22,9 @@ import tempfile
 
 import pytest
 
-from sovereign_runtime.compile.compiler import SourceSpec, compile_corpus
-from sovereign_runtime.knowledge.evaluator import Evaluator
-from sovereign_runtime.knowledge.store import Store, UnknownReference
+from ganymede4.compile.compiler import SourceSpec, compile_corpus
+from ganymede4.knowledge.evaluator import Evaluator
+from ganymede4.knowledge.store import Store, UnknownReference
 
 
 CORPUS = (
@@ -327,7 +327,7 @@ class TestRecordSizeDoesNotScaleWithTheCorpus:
 class TestAgainstTheRealCorpus:
     @pytest.fixture
     def slice_of_real_corpus(self):
-        from sovereign_runtime.corpus import load_corpus
+        from ganymede4.corpus import load_corpus
 
         return list(load_corpus(limit=300))
 

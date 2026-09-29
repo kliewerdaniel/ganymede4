@@ -23,13 +23,13 @@ import os
 
 import pytest
 
-from sovereign_runtime.compile.compiler import SourceSpec, compile_corpus
-from sovereign_runtime.compile.segment import (
+from ganymede4.compile.compiler import SourceSpec, compile_corpus
+from ganymede4.compile.segment import (
     MIN_CLAIM_CHARS,
     is_proposition,
     segment,
 )
-from sovereign_runtime.knowledge.store import Store
+from ganymede4.knowledge.store import Store
 
 
 # --------------------------------------------------------------------------
@@ -202,7 +202,7 @@ class TestCompilerDiscardsNonPropositions:
 class TestAgainstTheRealCorpus:
     @pytest.fixture
     def real_documents(self):
-        from sovereign_runtime.corpus import load_corpus
+        from ganymede4.corpus import load_corpus
 
         return list(load_corpus(limit=1500))
 

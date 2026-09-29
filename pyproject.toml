@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sovereign-runtime"
+name = "ganymede4"
 version = "0.1.0"
 description = "A local intelligence system is not a model. It is a governed runtime in which a model is one probabilistic component."
 readme = "README.md"
@@ -22,7 +22,7 @@ dependencies = []
 inference = ["httpx>=0.27"]
 
 [project.scripts]
-sovereign = "sovereign_runtime.cli:main"
+ganymede4 = "ganymede4.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

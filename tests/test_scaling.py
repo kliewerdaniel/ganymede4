@@ -41,10 +41,10 @@ import time
 
 import pytest
 
-from sovereign_runtime.compile.compiler import SourceSpec, compile_corpus
-from sovereign_runtime.knowledge.evaluator import Evaluator
-from sovereign_runtime.knowledge.store import Store
-from sovereign_runtime.witness.retrieval import BM25
+from ganymede4.compile.compiler import SourceSpec, compile_corpus
+from ganymede4.knowledge.evaluator import Evaluator
+from ganymede4.knowledge.store import Store
+from ganymede4.witness.retrieval import BM25
 
 
 def _corpus_of(n: int):

@@ -13,17 +13,17 @@ from __future__ import annotations
 
 import pytest
 
-from sovereign_runtime.compile.compiler import (
+from ganymede4.compile.compiler import (
     COMPILE_PERMITTED_STATES,
     HEURISTIC_MIN_SUPPORT,
     SourceSpec,
     _forbid_state_assignment,
     compile_corpus,
 )
-from sovereign_runtime.compile.manifest import build_manifest, merkle_root
-from sovereign_runtime.compile.segment import iter_segments, segment
-from sovereign_runtime.knowledge.epistemic import EpistemicState
-from sovereign_runtime.knowledge.store import Store
+from ganymede4.compile.manifest import build_manifest, merkle_root
+from ganymede4.compile.segment import iter_segments, segment
+from ganymede4.knowledge.epistemic import EpistemicState
+from ganymede4.knowledge.store import Store
 
 TT = "2026-09-28T00:00:00Z"
 
@@ -93,7 +93,7 @@ class TestSegmentation:
         assert segs[0].text == "no terminator here"
 
     def test_unordered_offsets_are_rejected(self):
-        from sovereign_runtime.compile.segment import Segment
+        from ganymede4.compile.segment import Segment
 
         with pytest.raises(ValueError):
             Segment(text="x", start=5, end=2, ordinal=0)
@@ -107,7 +107,7 @@ class TestCompilerStateWall:
         assert COMPILE_PERMITTED_STATES == frozenset({EpistemicState.UNEXAMINED})
 
     def test_guard_fires_if_the_wall_is_widened(self, monkeypatch):
-        import sovereign_runtime.compile.compiler as mod
+        import ganymede4.compile.compiler as mod
 
         monkeypatch.setattr(
             mod, "COMPILE_PERMITTED_STATES", frozenset(EpistemicState)
@@ -147,9 +147,9 @@ class TestCompilerStateWall:
         being run; this one runs in CI.
         """
         import ast
-        import sovereign_runtime.compile.compiler as mod
-        import sovereign_runtime.compile.manifest as man
-        import sovereign_runtime.compile.segment as seg
+        import ganymede4.compile.compiler as mod
+        import ganymede4.compile.manifest as man
+        import ganymede4.compile.segment as seg
 
         banned = {"confidence", "conf", "score", "prob", "probability"}
         for module in (mod, man, seg):
@@ -246,8 +246,8 @@ class TestFullEquality:
         script = (
             "import sys;"
             f"sys.path.insert(0, {str(repo / 'src')!r});"
-            "from sovereign_runtime.compile.compiler import compile_corpus, SourceSpec;"
-            "from sovereign_runtime.knowledge.store import Store;"
+            "from ganymede4.compile.compiler import compile_corpus, SourceSpec;"
+            "from ganymede4.knowledge.store import Store;"
             f"spec=SourceSpec(uri='a.md', content={CORPUS_A!r});"
             f"print(compile_corpus(Store({str(tmp_path / 'x.db')!r}), [spec],"
             " transaction_time='t').manifest.root)"
@@ -445,7 +445,7 @@ class TestManifest:
         assert a.root != b.root
 
     def test_schema_version_participates_in_the_root(self):
-        import sovereign_runtime.compile.manifest as man
+        import ganymede4.compile.manifest as man
 
         a = build_manifest(source_ids=["s"], claim_ids=["c"], evidence_ids=["e"])
         original = man.MANIFEST_SCHEMA_VERSION

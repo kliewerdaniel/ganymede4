@@ -12,15 +12,15 @@ import math
 
 import pytest
 
-from sovereign_runtime.core.canonical import JCSError, canonicalize, canonical_bytes
-from sovereign_runtime.core.content import (
+from ganymede4.core.canonical import JCSError, canonicalize, canonical_bytes
+from ganymede4.core.content import (
     VOLATILE_FIELDS,
     content_id,
     fingerprint,
     strip_volatile,
 )
-from sovereign_runtime.knowledge.crosswalk import CROSSWALK, UnmappedTerm, resolve
-from sovereign_runtime.knowledge.epistemic import (
+from ganymede4.knowledge.crosswalk import CROSSWALK, UnmappedTerm, resolve
+from ganymede4.knowledge.epistemic import (
     LEGAL_TRANSITIONS,
     EpistemicState,
     InvalidTransition,
@@ -254,7 +254,7 @@ class TestNoConfidenceForTruth:
     def test_no_state_function_takes_a_confidence_argument(self):
         import inspect
 
-        from sovereign_runtime.knowledge import epistemic as mod
+        from ganymede4.knowledge import epistemic as mod
 
         for name in ("check_transition", "validate_state"):
             sig = inspect.signature(getattr(mod, name))

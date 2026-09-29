@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from sovereign_runtime.knowledge.epistemic import EpistemicState
-from sovereign_runtime.knowledge.store import Store
+from ganymede4.knowledge.epistemic import EpistemicState
+from ganymede4.knowledge.store import Store
 
 REPO = Path(__file__).resolve().parent.parent
 AUDITOR = REPO / "scripts" / "audit_provenance.py"
@@ -124,7 +124,7 @@ def build_artifact(path: Path, extra_source: str | None = None) -> None:
     # Evaluation record naming the claim that attested it. The independent
     # auditor requires that record, so a store that moved state without one
     # now fails the audit instead of passing it.
-    from sovereign_runtime.knowledge.evaluator import Evaluator
+    from ganymede4.knowledge.evaluator import Evaluator
 
     class _Manifest:
         claim_ids = tuple(r["id"] for r in store.claims())
@@ -193,7 +193,7 @@ class TestIndependentAudit:
     def test_auditor_is_a_separate_process(self):
         # the auditor must not import the package under test
         source = AUDITOR.read_text()
-        assert "sovereign_runtime" not in source
+        assert "ganymede4" not in source
 
     def test_every_claim_resolves_to_a_source_span(self, artifact):
         _, report = audit_json(artifact)

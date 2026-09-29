@@ -16,7 +16,7 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
-**Phase 6 — execution: the first component that does something.** 278 tests
+**Phase 7 — the runtime: it proposes, and it cannot write.** 296 tests
 passing on Python 3.12, stdlib-only, offline.
 
 Implemented so far:
@@ -38,9 +38,10 @@ Implemented so far:
 | **The policy gateway** | Fail-closed authorization; decisions are content-addressed and hash-chained | `policy/gateway.py` |
 | **The executor** | Performs authorized actions and records them; re-checks the path against the real filesystem | `execution/executor.py` |
 | Sandboxes | Pluggable backends; the default is a no-op that says so | `execution/sandbox.py` |
+| **The runtime** | A bounded proposal loop over a read-only witness. Holds no store, so it cannot write | `runtime/loop.py` |
 | Independent auditor | Separate process, stdlib only, imports nothing from the package — walks every claim to a source offset | `scripts/audit_provenance.py` |
 
-### The five rules that carry the thesis
+### The six rules that carry the thesis
 
 **The compiler cannot assign an epistemic state.** Every claim it writes is
 `UNEXAMINED`, enforced by a guard that raises if `COMPILE_PERMITTED_STATES` is
@@ -88,6 +89,27 @@ apart, and conflating them produces audit records that lie precisely when
 nobody can check them. `argv` is a list, there is no shell, and a test asserts
 `echo "hi; touch PWNED"` prints the semicolon rather than running it.
 
+**The runtime cannot write, and cannot be made to.** `target-architecture.md`
+§2 says *nothing in L4 can write to L1*; that is implemented as a missing
+capability rather than a withheld one. `Runtime` takes a witness and a gateway
+and **no store parameter exists**, so there is no wiring that connects it to
+the write path even by accident, and a test parses the package's AST to prove
+it imports no write path. `Proposal` has no `apply` — the absence is the API.
+
+A proposer that fabricates claim ids, cites nothing, and self-attests gets
+**zero permitted proposals even under a fully-granting policy**:
+
+```
+unknown-citation   cited claim id(s) not in the corpus: clm-00000000000000000
+uncited            proposal asserts a state without citing any claim
+permitted count: 0
+```
+
+That test is the point. If governance lived in the prompt, the guarantees would
+change when the proposer changed and the diff would be a string. Here the
+`Proposer` is a seam and the loop enforces everything, so a model can be
+dropped in without changing a single guarantee — [ADR-009](docs/adr/ADR-009-runtime-proposal-loop.md).
+
 Every decision is content-addressed and hash-chained, and **the chain covers the
 verdict and the reason, not just an id**. With the verdict excluded, flipping a
 recorded `DENY` to `ALLOW` and leaving the hash untouched verifies clean — that
@@ -108,6 +130,9 @@ default executor         →  no-op, and a record saying so
 symlink escape           →  gateway ALLOW, executor REFUSED
 argv "; touch PWNED"     →  echoed as text; PWNED never created
 decision chain broken    →  execution refused before the backend is called
+malicious proposer       →  0 permitted, under a fully-granting policy
+permitted proposal       →  no claim, no evidence, no state written
+budget = 0               →  ValueError, not a silent empty run
 conflict pair compiled   →  2 contradicted, 2 inconclusive, 0 supported
 one byte changed         →  new Merkle root
 same bytes, reordered    →  identical root

@@ -128,6 +128,32 @@ CREATE INDEX IF NOT EXISTS idx_claims_state ON claims(state);
 -- verifies against a manifest compiled after.
 CREATE INDEX IF NOT EXISTS idx_evaluations_subject ON evaluations(subject_id);
 CREATE INDEX IF NOT EXISTS idx_claim_evidence_claim ON claim_evidence(claim_id);
+
+-- ADR-018. Single-row table: what this store currently *is*.
+--
+-- The Merkle root covers each claim's epistemic state, so an artifact whose
+-- beliefs moved is a different artifact and gets a different version. That
+-- leaves one window open: between a revision and the next recompile, the
+-- stored rows no longer match any manifest that was ever built. A witness
+-- bound to the old version would keep answering from the moved store.
+--
+-- `state_epoch` is the tripwire. It is incremented by `set_state` -- the one
+-- funnel every epistemic transition passes through -- and read by a witness
+-- before each answer. O(1), because a witness that re-derived the full
+-- state digest per question would cost 0.59s on a 336k-claim corpus, and a
+-- guard that is switched off under load is not a guard.
+--
+-- It is a counter in the database it guards, so direct SQL bypasses it.
+-- That is what the independent auditor's digest re-derivation is for: the
+-- epoch catches the ordinary path cheaply, the auditor catches the
+-- extraordinary one after the fact. Neither is trusted to cover for the other.
+CREATE TABLE IF NOT EXISTS artifact (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    root         TEXT NOT NULL DEFAULT '',
+    version      TEXT NOT NULL DEFAULT '',
+    state_digest TEXT NOT NULL DEFAULT '',
+    state_epoch  INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -369,8 +395,83 @@ class Store:
             "UPDATE claims SET state = ?, transaction_time = ? WHERE id = ?",
             (new.value, transaction_time, claim_id),
         )
+        # ADR-018: the beliefs moved, so anything bound to the old version is
+        # now stale. Bumped here, in the single funnel every transition passes
+        # through, so the tripwire cannot be missed by using the API correctly.
+        #
+        # Inlined rather than calling `bump_state_epoch` because the evaluator
+        # drives `set_state` once per claim: 336,190 extra statements, each a
+        # round trip, cost ~50s on the real corpus. It rides the commit that
+        # `set_state` already performs, so the epoch is still atomic with the
+        # state change it describes.
+        self.db.execute(
+            "INSERT INTO artifact (id, state_epoch) VALUES (1, 1) "
+            "ON CONFLICT(id) DO UPDATE SET state_epoch = state_epoch + 1"
+        )
         self.db.commit()
         return new
+
+    # -- artifact identity (ADR-018) -------------------------------------
+
+    def bump_state_epoch(self) -> int:
+        """Increment and return the state epoch.
+
+        Separate from ``set_state`` so a bulk writer can signal a change
+        explicitly, and so a test can move the epoch without manufacturing a
+        legal transition.
+        """
+        self.db.execute(
+            "INSERT INTO artifact (id, state_epoch) VALUES (1, 1) "
+            "ON CONFLICT(id) DO UPDATE SET state_epoch = state_epoch + 1"
+        )
+        return self.state_epoch()
+
+    def state_epoch(self) -> int:
+        """The current epoch. 0 when this store has never recorded one."""
+        row = self.db.execute("SELECT state_epoch FROM artifact WHERE id = 1").fetchone()
+        return int(row["state_epoch"]) if row is not None else 0
+
+    def record_artifact(self, manifest: Any) -> None:
+        """Record which version this store currently holds (ADR-018).
+
+        Does not touch the epoch: recording what the store *is* is a different
+        event from the beliefs changing underneath it.
+        """
+        self.db.execute(
+            "INSERT INTO artifact (id, root, version, state_digest, state_epoch) "
+            "VALUES (1, ?, ?, ?, COALESCE((SELECT state_epoch FROM artifact WHERE id = 1), 0)) "
+            "ON CONFLICT(id) DO UPDATE SET root = excluded.root, "
+            "version = excluded.version, state_digest = excluded.state_digest",
+            (manifest.root, manifest.version, manifest.state_digest),
+        )
+        self.db.commit()
+
+    def recorded_artifact(self) -> dict[str, Any] | None:
+        """What this store last declared itself to be, or ``None``."""
+        row = self.db.execute(
+            "SELECT root, version, state_digest, state_epoch FROM artifact WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "root": row["root"],
+            "version": row["version"],
+            "state_digest": row["state_digest"],
+            "state_epoch": int(row["state_epoch"]),
+        }
+
+    def state_pairs(self) -> list[tuple[str, str]]:
+        """Every ``(claim_id, state)``, for digest re-derivation.
+
+        A narrow two-column scan, not ``claims()``. ``claims()`` hydrates every
+        column of all 336,190 rows on the real corpus and costs 6.4s against
+        0.9s here, and this feeds a function that is called in tests and by
+        anything rebuilding a manifest.
+        """
+        return [
+            (r["id"], r["state"])
+            for r in self.db.execute("SELECT id, state FROM claims")
+        ]
 
     def add_evaluation(
         self,

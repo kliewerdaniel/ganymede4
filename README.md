@@ -14,6 +14,12 @@ corpus → compiler → versioned artifact → witness → agent interrogation
        → belief revision → next version
 ```
 
+Each arrow in that diagram is a component that exists and is tested. Two of
+them were, at different times, decorative: `belief revision` did not exist for
+eleven phases (ADR-017), and once it did, `→ next version` still pointed at
+nothing, because the Merkle root could not see a claim's epistemic state change
+(ADR-018). The diagram is now a description rather than an aspiration.
+
 ## Running it
 
 Requires Python 3.11+ and nothing else — the core has **no dependencies**, and
@@ -22,7 +28,7 @@ no test or script reaches the network.
 ```bash
 git clone https://github.com/kliewerdaniel/ganymede4
 cd ganymede4
-python -m pytest          # 417 tests, ~14s
+python -m pytest          # 448 tests, ~14s
 ```
 
 `pip install -e .` is optional and currently only adds a broken console script
@@ -31,22 +37,124 @@ the artifact*.
 
 ## Status
 
+**Phase 15 — a claim's state is part of what the artifact says.**
+448 tests passing on Python 3.12, stdlib-only, offline.
+
+The README's own pipeline diagram claimed `belief revision → next version` for
+eleven phases before the component existed, and after building the component
+last phase the arrow *still* pointed at nothing. Both halves of that sentence
+were defects, and the second was found by measuring rather than by reading.
+
+[ADR-017](docs/adr/ADR-017-belief-revision.md) built the first half: a claim
+entering `RETRACTED`, `INVALIDATED`, or `SUPERSEDED` invalidates everything
+that transitively depends on it, through derived edges and attestation groups.
+Transitive, fail-closed, only ever downward. 13 tests, each checked against a
+sabotaged implementation.
+
+[ADR-018](docs/adr/ADR-018-artifact-version-covers-state.md) is about the
+second half — and it is the more serious of the two, because the artifact
+version could not tell you the beliefs had changed. The Merkle root covered
+claim *ids*, and a claim's id deliberately excludes its state: the id is the
+hash of what the claim says, so a reassessed claim keeps its id. That is
+correct. But `state_counts` was recorded in the manifest and **excluded from
+the root**, and the manifest's own docstring already made the argument that had
+been missed:
+
+> Claim ids alone do not capture relationships… a version id that could not
+> tell them apart would be lying about what it identifies.
+
+That argument had been applied to edges and not to belief. So on the real
+corpus:
+
+```
+root BEFORE revision: 177a5ee5afaf63e8fc40088764fa8287
+true state_counts after: {unexamined: 319292, derived: 16896,
+                          retracted: 1, invalidated: 1}
+root AFTER  revision: 177a5ee5afaf63e8fc40088764fa8287
+ROOTS EQUAL: True
+```
+
+Two claims changed state and the root was byte-identical. The consequence is
+worse than a stale version string, because the witness is *defined* as a
+version-bound view: its guarantee is enforced by a leaf-set membership check,
+and a state change adds and removes no claim, so the check cannot see it.
+
+```
+witness version      : v1-177a5ee5afaf63e8
+witness state_counts : {unexamined: 319293, derived: 16897}   ← false
+TRUTH                : {unexamined: 319292, ..., retracted: 1, invalidated: 1}
+```
+
+Asked what it contained, it answered with numbers that were false, under a
+version id that certified them. Every field it exposed was internally
+consistent, and the one field that could have caught it could not change.
+
+Three parts, because the identity fix alone leaves a window and the drift
+check alone is bypassable:
+
+- **State enters the root.** A SHA-256 over every sorted `(claim_id, state)`
+  pair, as one leaf rather than 336,190. Order-independent, and cheap enough
+  to verify: 0.59s on the real corpus. This is what makes
+  `belief revision → next version` literal rather than aspirational.
+- **A `state_epoch` tripwire.** The store carries a counter bumped inside
+  `set_state` — the single funnel every transition passes through — and the
+  witness re-reads it before every answer, raising `StaleWitness`. O(1).
+  Re-deriving the digest per question was measured at 0.59s and rejected: a
+  guard that is disabled under load is not a guard.
+- **The auditor re-derives the digest itself.** The epoch is a counter in the
+  database it guards, so direct SQL bypasses it. The auditor's copy is a
+  second, independent implementation, because an auditor that calls the code
+  it audits certifies only that the code agrees with itself.
+
+It fails closed rather than silently refreshing. A witness asked a question
+about one version and handed findings from another, without saying so, is the
+precise failure this project is built against.
+
+Verified on the real 336,190-claim artifact, in both directions:
+
+```
+clean artifact                →  clean: True    exit 0
+one claim retracted via SQL    →  clean: False   exit 1
+                                  state_digest_mismatch: 1
+retract → revise → old witness →  StaleWitness raised
+```
+
+Each part was sabotage-tested: removing the `state:` leaf fails one test,
+disabling the freshness check fails four, stubbing the auditor's digest fails
+one. A test that cannot fail on the property is not testing the property.
+
+The same revision that fixed a lying version string also made the suite
+*faster* — 13.8s against a 13.5s baseline, from 136s in the first
+implementation, by inlining the epoch bump into the transaction `set_state`
+already commits rather than adding a round trip per claim.
+
+### Two defects found in the fix itself
+
+Worth recording because both were the auditor's own failure mode, which is
+the one thing an independent auditor must not have.
+
+**It invented a defect.** The first version reported a state-digest mismatch
+against stores that never recorded a version — including several tests that
+build a store directly through the Store API without compiling. Comparing a
+digest against an empty string is not a finding; it is the auditor
+fabricating one. *Uncheckable* is now distinct from *wrong*, and a test pins
+it.
+
+**It nearly made the guard disappear.** Re-deriving the digest per question
+was 0.59s on 336,190 claims. Keeping it in the read path would have meant a
+guard nobody could afford to run, which is a guard that is off.
+
+## Earlier status
+
 **Phase 14 — a retracted claim takes its dependents with it.**
 430 tests passing on Python 3.12, stdlib-only, offline.
 
-The README's own pipeline diagram claimed `belief revision → next version` for
-eleven phases before the component existed. Grepping `src/` for `revision`
-returned two English uses of the word in comments and nothing else — the
-diagram had been describing a system with a hole in it.
-
-The hole was not cosmetic. The corpus holds 16,897 `DERIVED` heuristics, each
-resting via a `DERIVED_FROM` edge on the claims that produced it. If two of
-those supporting claims are retracted, the heuristic does not get weaker — it
+Grepping `src/` for `revision` returned two English uses of the word in
+comments and nothing else — the diagram had been describing a system with a
+hole in it. The hole was not cosmetic. The corpus holds 16,897 `DERIVED`
+heuristics, each resting via a `DERIVED_FROM` edge on the claims that produced
+it. If a supporting claim is retracted, the heuristic does not get weaker — it
 becomes *unsupported*, and nothing noticed. The artifact kept asserting it.
-
-[ADR-017](docs/adr/ADR-017-belief-revision.md): a claim entering `RETRACTED`,
-`INVALIDATED`, or `SUPERSEDED` now invalidates everything that transitively
-depends on it — through derived edges *and* through attestation groups.
 
 Three properties, each load-bearing and each tested against a sabotaged
 implementation:
@@ -66,23 +174,17 @@ implementation:
 claim. Including it would invalidate much of the corpus the moment a peer
 group formed.
 
-Measured on the real corpus, and worth stating because it is not what the
-edge count suggests: 100,723 `DERIVED_FROM` edges over 16,897 derived claims
-resolve to 100,723 *distinct* supports, each with exactly one dependent, and
-the deepest chain is one level. The mined heuristics form a flat bipartite
-graph, not a hierarchy — so on this corpus revision is shallow by
-construction, and the transitivity guarantee is there for corpora where it
-is not.
+Measured on the real corpus, and worth stating because it is not what the edge
+count suggests: 100,723 `DERIVED_FROM` edges over 16,897 derived claims resolve
+to 100,723 *distinct* supports, each with exactly one dependent, and the
+deepest chain is one level. The mined heuristics form a flat bipartite graph,
+not a hierarchy — so on this corpus revision is shallow by construction, and
+the transitivity guarantee is there for corpora where it is not. An earlier
+draft of this README claimed a retraction "has a long way to travel"; measuring
+it is what showed that to be false.
 
-The independent auditor gained the matching check and still imports nothing
-from the package — it re-derives the invariant from the stored rows, because
-an auditor that imports the code it audits cannot catch that code being wrong:
-
-```
-clean artifact                →  clean: True    exit 0   4.2s, 336,190 claims
-support retracted, no revise  →  clean: False   exit 1
-                                  stale_dependents: 1, naming both claims
-```
+The auditor gained the matching `stale_dependents` check at this phase, still
+importing nothing from the package.
 
 The honest cost, stated in the ADR rather than discovered later: revision is
 **conservative**. Losing one of five supports invalidates a heuristic that
@@ -238,13 +340,20 @@ The name applies to the repository, the Python package (`ganymede4`), the
 `pyproject.toml` project name, and the `ganymede4` console script.
 
 It deliberately does **not** apply to the content-addressing domain strings —
-`sovereign-runtime/leaf/v1`, `sovereign-runtime/manifest/v1`, and their siblings
-in `core/content.py` and `compile/manifest.py`. Those are prefixes fed into the
-hash, so renaming them would change every claim id, evidence id, and the Merkle
-root, invalidating a 336,190-claim artifact that currently audits clean. A hash
-domain is permanent identity: it is fixed at first use and cannot be renamed
-after, exactly as a database table already written to cannot be. These strings
-predate the rename and stay.
+`sovereign-runtime/leaf/v1`, `sovereign-runtime/manifest/v1`,
+`sovereign-runtime/state/v1`, and their siblings in `core/content.py` and
+`compile/manifest.py`. Those are prefixes fed into the hash, so renaming them
+would change every claim id, evidence id, and the Merkle root, invalidating a
+336,190-claim artifact that currently audits clean. A hash domain is permanent
+identity: it is fixed at first use and cannot be renamed after, exactly as a
+database table already written to cannot be. These strings predate the rename
+and stay.
+
+`sovereign-runtime/state/v1` was added by ADR-018, in 2026, *after* the
+rename — deliberately under the old prefix, for the same reason. The rule is
+not "strings older than the rename are exempt"; it is that a domain is chosen
+once and then frozen, and writing a new one does not retroactively license
+rewriting the old ones.
 
 ### Known defect: the console script points at a module that does not exist
 
@@ -289,23 +398,27 @@ describes the sample, not the corpus.)
 Verified current output — the numbers this README quotes throughout:
 
 ```
-version : v1-177a5ee5afaf63e8
-root    : 177a5ee5afaf63e8fc40088764fa8287...
+version : v1-7e506ea556f63374
+root    : 7e506ea556f633747ee9e703e675ef39...
 sources : 18,930
 claims  : 336,190
 evidence: 319,293
+heurist.: 16,897
 dropped : 114,798 non-propositions
 reversed-order recompile identical : True
 
-auditor: clean True, exit 0, 0 span mismatches, 0 orphans — 4.4s
+auditor: clean True, exit 0, 0 span mismatches, 0 orphans,
+         0 stale dependents, 0 state-digest mismatches
 ```
 
 Two things to expect that look like failures and are not:
 
-- **The root is `177a5ee5afaf63e8`, not `973270e4465b2d3c` or `219a5b92284b3ae5`.**
-  Those are earlier builds. Any change to segmentation, proposition rules, or
-  the manifest schema changes the root, which is the correct behaviour — the
-  root is a function of the content.
+- **The root is `7e506ea556f63374`, not `177a5ee5afaf63e8`,
+  `973270e4465b2d3c`, or `219a5b92284b3ae5`.** Those are earlier builds. Any
+  change to segmentation, proposition rules, the manifest schema, or — since
+  ADR-018 — to which claims sit in which epistemic state, changes the root.
+  That is the correct behaviour: the root is a function of the content, and
+  the beliefs are content.
 - **`114,798` dropped segments is the largest number in that output.** 22% of
   the real corpus is not assertable prose. It is counted and reported, never
   dropped silently (ADR-012).
@@ -327,10 +440,10 @@ Implemented so far:
 | The evaluator | The only component that may move an epistemic state — and it returns a relation, never a score | `knowledge/evaluator.py` |
 | **The reviser** | Propagates a retraction transitively through derived and attested dependencies; only ever moves claims down | `knowledge/revision.py` |
 | Sentence segmentation | Deterministic, offset-exact, so every compiled claim is a **verbatim substring** of its source | `compile/segment.py` |
-| Merkle manifest | Artifact version = root over sorted content leaves; recompiling unchanged bytes is *not* a new version | `compile/manifest.py` |
+| Merkle manifest | Artifact version = root over sorted content leaves **and every claim's epistemic state**; recompiling unchanged bytes is *not* a new version | `compile/manifest.py` |
 | Deterministic compiler | A pure function of source bytes; mines recurrence heuristics as graph claims | `compile/compiler.py` |
 | Lexical retriever | Deterministic BM25, stdlib only, with the method id disclosed on every result | `witness/retrieval.py` |
-| The witness | A read-only, version-bound view that answers with typed, provenanced answers | `witness/witness.py` |
+| The witness | A read-only, version-bound view that answers with typed, provenanced answers — and **refuses** rather than answer once the store's beliefs have moved | `witness/witness.py` |
 | **The policy gateway** | Fail-closed authorization; decisions are content-addressed and hash-chained | `policy/gateway.py` |
 | **The executor** | Performs authorized actions and records them; re-checks the path against the real filesystem | `execution/executor.py` |
 | Sandboxes | Pluggable backends; the default is a no-op that says so | `execution/sandbox.py` |
@@ -609,6 +722,15 @@ Three things this cost, all worth recording:
   records were contradicted. Fixing the common case and leaving the rare one is
   how the rare one ships; it now has a column, a peer group, and a test
   confirmed to fail when the list is inlined again.
+- **The "must not invent one" rule caught me four phases later.** ADR-018's
+  auditor check compared a re-derived state digest against the value recorded
+  in the store, and reported a mismatch whenever the two differed — including
+  for stores that never recorded a digest at all, which is what several tests
+  build when they assemble a store directly through the API. Comparing a digest
+  against an empty string is not a finding. The quote above was written about
+  the auditor lying about span mismatches; the same auditor then lied about
+  digest mismatches, for the same reason: a check that cannot distinguish "this
+  is wrong" from "I cannot tell" will eventually pick one and be wrong.
 
 ## The principle, stated once
 

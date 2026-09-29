@@ -40,6 +40,7 @@ __all__ = [
     "ResolvedEvidence",
     "Boundary",
     "OutOfVersion",
+    "StaleWitness",
     "METHOD_ID",
 ]
 
@@ -49,6 +50,20 @@ class OutOfVersion(Exception):
 
     Fail-closed. A witness that can read a claim added after it was
     instantiated would make ``artifact_version`` decorative.
+    """
+
+
+class StaleWitness(Exception):
+    """The store's beliefs moved after this witness was bound (ADR-018).
+
+    Distinct from :class:`OutOfVersion`. OutOfVersion means the record was
+    never in this version; StaleWitness means every record is still nominally
+    in this version, but the version no longer describes the store, so
+    answering would attribute current findings to a superseded set of beliefs.
+
+    A state change does not add or remove a claim, so the leaf-set membership
+    check that catches OutOfVersion cannot catch this. That is the whole
+    reason the class exists.
     """
 
 
@@ -206,6 +221,29 @@ class Witness:
         self._index = BM25(docs)
         self._asked: list[str] = []
         self._absences: list[str] = []
+        # ADR-018: the version this witness was bound to was true at
+        # construction. If the store's beliefs have moved since, every answer
+        # below describes a version that no longer exists, so the epoch is
+        # captured here and re-read before each answer.
+        self._epoch = store.state_epoch()
+
+    def _check_fresh(self) -> None:
+        """Fail closed if the store moved since this witness was bound.
+
+        Raising rather than refreshing is deliberate. A silent refresh would
+        answer a question about one version with findings from another, and
+        the caller would have no way to know. Whether re-binding is acceptable
+        is the caller's decision to make, so the witness makes it for them by
+        refusing.
+        """
+        current = self._store.state_epoch()
+        if current != self._epoch:
+            raise StaleWitness(
+                f"artifact moved under this witness: bound to {self.version} at "
+                f"state epoch {self._epoch}, store is now at epoch {current}. "
+                "Rebuild the witness against a manifest for the current "
+                "beliefs, or reopen the store at the version you meant."
+            )
 
     # -- version binding -------------------------------------------------
 
@@ -285,10 +323,11 @@ class Witness:
 
         On a miss this writes an ``Investigation`` recording the query, the
         scope, the method, and the version, and returns ``UNRESOLVED`` with that
-        record attached. The write is not bookkeeping — ADR-002's
+        record. The write is not bookkeeping — ADR-002's
         ``MissingInvestigation`` guard means an absence that cannot show its
         work cannot be represented at all.
         """
+        self._check_fresh()
         self._asked.append(question)
         hits = self._index.search(question, limit=limit)
 
@@ -340,6 +379,12 @@ class Witness:
     # -- boundary --------------------------------------------------------
 
     def boundary(self) -> Boundary:
+        # ADR-018: `state_counts` below is read from the manifest, so it
+        # describes the version this witness was bound to. If the store has
+        # moved, those numbers are a historical fact being reported as a
+        # present one -- the exact defect ADR-018 exists to close. So the
+        # boundary refuses too, not just `ask`.
+        self._check_fresh()
         sources: list[str] = []
         for sid in self._manifest.source_ids:
             row = self._store.get_source(sid)

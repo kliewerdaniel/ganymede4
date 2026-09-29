@@ -22,6 +22,7 @@ Every check is a set operation, so no answer depends on row or iteration order.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import sys
@@ -296,6 +297,14 @@ def audit(db_path: str) -> dict[str, Any]:
         # done in Python over a graph built here -- but the graph is built
         # from SQL, not by importing the component that produced it.
         _audit_stale_dependents(conn, report, cap)
+
+        # ADR-018: re-derive the state digest from the stored rows and
+        # compare. This is the check the in-database epoch cannot make --
+        # an epoch is a counter in the database it guards, so anyone writing
+        # SQL directly moves beliefs without moving it. Recomputing here is
+        # the only way the comparison means anything, which is why it is a
+        # separate implementation rather than a call into the package.
+        _audit_state_digest(conn, report)
     finally:
         conn.close()
 
@@ -307,8 +316,65 @@ def audit(db_path: str) -> dict[str, Any]:
         and not report["state_without_evaluation"]
         and not report["unresolvable_attestation"]
         and not report["stale_dependents"]
+        and not report["state_digest_mismatch"]
     )
     return report
+
+
+def _audit_state_digest(conn: sqlite3.Connection, report: dict[str, Any]) -> None:
+    """Recompute the claim-state digest and compare to the recorded one.
+
+    Deliberately re-implements the digest rather than importing the package's
+    version of it. An auditor that calls the code it is auditing certifies
+    only that the code agrees with itself; the whole value of this check is
+    that it is a second, independent derivation of the same value.
+    """
+    row = conn.execute(
+        "SELECT state_digest FROM artifact WHERE id = 1"
+    ).fetchone()
+    if row is None or not row["state_digest"]:
+        # No artifact row, or a row that never recorded a digest, means the
+        # store never declared a version. That is not a mismatch -- it is an
+        # artifact this check cannot speak to, and saying so is more useful
+        # than reporting a failure the auditor cannot substantiate.
+        #
+        # It is also the honest reading for a hand-built store: several tests
+        # assemble one directly through the Store API without compiling, so
+        # there is no manifest to compare against. Claiming a mismatch there
+        # would be the auditor inventing a defect, which is the one thing an
+        # independent auditor must never do.
+        report["artifact_recorded"] = False
+        report["state_digest_recorded"] = None
+        report["state_digest_mismatch"] = []
+        return
+    report["artifact_recorded"] = True
+    recorded = row["state_digest"]
+
+    h = hashlib.sha256()
+    h.update(b"sovereign-runtime/state/v1")
+    for cid, state in conn.execute("SELECT id, state FROM claims ORDER BY id"):
+        h.update(b"\x00")
+        h.update(cid.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(state.encode("utf-8"))
+    actual = h.hexdigest()
+
+    report["state_digest_recorded"] = recorded
+    report["state_digest_mismatch"] = (
+        []
+        if recorded == actual
+        else [
+            {
+                "recorded": recorded,
+                "actual": actual,
+                "detail": (
+                    "the claims table does not match the artifact this store "
+                    "says it holds; a state was changed without going through "
+                    "the store's transition path, so no new version was issued"
+                ),
+            }
+        ]
+    )
 
 
 def _audit_stale_dependents(

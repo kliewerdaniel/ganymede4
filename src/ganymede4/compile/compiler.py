@@ -290,9 +290,16 @@ def compile_corpus(
         for supporting in heuristic.supporting_claim_ids:
             store.add_edge(hid, supporting, "DERIVED_FROM")
 
+    # One narrow scan for both the counts and the digest input, rather than
+    # iterating `store.claims()` (which hydrates every column of every row --
+    # 6.4s on the real corpus versus 0.9s here) and then walking the result a
+    # second time. ADR-014 already paid for the unindexed version of this
+    # mistake; the fix is a column list, not an index.
     state_counts: dict[str, int] = {}
-    for row in store.claims():
-        state_counts[row["state"]] = state_counts.get(row["state"], 0) + 1
+    states: list[tuple[str, str]] = []
+    for claim_id, state in store.db.execute("SELECT id, state FROM claims"):
+        state_counts[state] = state_counts.get(state, 0) + 1
+        states.append((claim_id, state))
 
     manifest = build_manifest(
         source_ids=source_ids,
@@ -301,9 +308,15 @@ def compile_corpus(
         heuristic_ids=heuristic_ids,
         edge_count=store.counts()["claim_edges"],
         state_counts=state_counts,
+        # ADR-018: without this the root cannot tell "believed" from
+        # "retracted", and a retraction leaves the version byte-identical.
+        states=states,
         compiled_at=compiled_at,
         run_id=run_id,
     )
+    # Record what this store now is, so the auditor has something to check the
+    # stored rows against and a reopened database knows what it holds.
+    store.record_artifact(manifest)
 
     return CompiledArtifact(
         manifest=manifest,

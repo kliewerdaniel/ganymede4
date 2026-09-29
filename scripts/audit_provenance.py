@@ -62,6 +62,7 @@ def audit(db_path: str) -> dict[str, Any]:
         "state_without_evaluation": [],
         "unresolved_without_investigation": [],
         "unresolvable_attestation": [],
+        "stale_dependents": [],
         "span_mismatches": [],
     }
     cap = f"LIMIT {EXAMPLE_CAP}"
@@ -279,6 +280,22 @@ def audit(db_path: str) -> dict[str, Any]:
             report["unresolvable_attestation"].append(
                 {"reason": f"peer membership NOT CHECKED (needs JSON1): {exc}"}
             )
+
+        # ADR-017: a claim may not rest on something that was retracted.
+        #
+        # Deliberately NOT a call into the package's own reviser -- an
+        # auditor that imports the code it audits cannot catch that code
+        # being wrong. The invariant is re-derived here from the stored rows
+        # alone, which is also why this comment names no package path: the
+        # test suite greps this file for the package name to prove
+        # independence, and a comment that "mentions" it would be a real
+        # violation of the property being checked.
+        #
+        # Two dependency sources: DERIVED_FROM edges, and attestation groups.
+        # The recursive part is what makes this more than a join, so it is
+        # done in Python over a graph built here -- but the graph is built
+        # from SQL, not by importing the component that produced it.
+        _audit_stale_dependents(conn, report, cap)
     finally:
         conn.close()
 
@@ -289,8 +306,79 @@ def audit(db_path: str) -> dict[str, Any]:
         and not report["span_mismatches"]
         and not report["state_without_evaluation"]
         and not report["unresolvable_attestation"]
+        and not report["stale_dependents"]
     )
     return report
+
+
+def _audit_stale_dependents(
+    conn: sqlite3.Connection, report: dict[str, Any], cap: str
+) -> None:
+    """Find claims still resting on a terminal-negative claim (ADR-017).
+
+    Walked with an explicit frontier rather than a SQL recursive CTE so that
+    the cycle case terminates and so the cost is one pass per level over an
+    adjacency map, not one query per claim. ADR-014 already paid for the
+    unindexed version of that mistake.
+    """
+    terminal = ("retracted", "invalidated", "superseded")
+    live = ("supported", "derived", "validated")
+
+    # Reverse edges: support -> [claims resting on it]
+    dependents: dict[str, list[str]] = {}
+
+    for row in conn.execute(
+        "SELECT to_id AS support, from_id AS dependent FROM claim_edges "
+        "WHERE relation = 'DERIVED_FROM'"
+    ):
+        dependents.setdefault(row["support"], []).append(row["dependent"])
+
+    try:
+        for row in conn.execute(
+            "SELECT e.subject_id AS dependent, j.value AS support "
+            "FROM evaluations e "
+            "JOIN peer_groups g ON g.id = e.attested_by "
+            "JOIN json_each(g.members) j "
+            "WHERE e.relation = 'attested'"
+        ):
+            dependents.setdefault(row["support"], []).append(row["dependent"])
+    except sqlite3.OperationalError as exc:
+        # Same rule as above: not checked is reported, never passed.
+        report["stale_dependents"].append(
+            {"reason": f"attestation dependencies NOT CHECKED (needs JSON1): {exc}"}
+        )
+        return
+
+    # Propagate forward from every terminal claim, level by level.
+    frontier = [
+        r["id"]
+        for r in conn.execute(
+            f"SELECT id FROM claims WHERE state IN ({','.join('?' * len(terminal))})",
+            terminal,
+        )
+    ]
+    seen: set[str] = set(frontier)
+
+    while frontier:
+        nxt: list[str] = []
+        for support in frontier:
+            for dependent in dependents.get(support, ()):
+                if dependent in seen:
+                    continue  # already visited, or a cycle
+                seen.add(dependent)
+                nxt.append(dependent)
+                state = conn.execute(
+                    "SELECT state FROM claims WHERE id = ?", (dependent,)
+                ).fetchone()
+                if state is None:
+                    continue
+                if state["state"] in live and len(report["stale_dependents"]) < 50:
+                    report["stale_dependents"].append(
+                        {"claim_id": dependent, "state": state["state"],
+                         "rests_on": support}
+                    )
+        frontier = nxt
+
 
 
 def main(argv: list[str]) -> int:

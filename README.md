@@ -31,6 +31,67 @@ the artifact*.
 
 ## Status
 
+**Phase 14 — a retracted claim takes its dependents with it.**
+430 tests passing on Python 3.12, stdlib-only, offline.
+
+The README's own pipeline diagram claimed `belief revision → next version` for
+eleven phases before the component existed. Grepping `src/` for `revision`
+returned two English uses of the word in comments and nothing else — the
+diagram had been describing a system with a hole in it.
+
+The hole was not cosmetic. The corpus holds 16,897 `DERIVED` heuristics, each
+resting via a `DERIVED_FROM` edge on the claims that produced it. If two of
+those supporting claims are retracted, the heuristic does not get weaker — it
+becomes *unsupported*, and nothing noticed. The artifact kept asserting it.
+
+[ADR-017](docs/adr/ADR-017-belief-revision.md): a claim entering `RETRACTED`,
+`INVALIDATED`, or `SUPERSEDED` now invalidates everything that transitively
+depends on it — through derived edges *and* through attestation groups.
+
+Three properties, each load-bearing and each tested against a sabotaged
+implementation:
+
+- **Transitive.** One level of propagation moves the staleness rather than
+  removing it. A heuristic derived from a heuristic goes too.
+- **Fails closed.** A dependent that cannot legally be invalidated is
+  *refused* and reported, never dropped. A silently skipped dependent is the
+  same defect one level up. Same rule for a dependency that cannot be read: an
+  unresolvable attestation group stops the revision rather than being treated
+  as an empty one, which would make a `SUPPORTED` claim read as unattested.
+- **Only ever downward.** Revision can invalidate but never resurrect, never
+  promote to `SUPPORTED`, and never reach `VALIDATED`. A new belief comes from
+  a new compile, which is a new artifact version.
+
+`CONTRADICTED` is deliberately **not** a trigger: a contested claim is still a
+claim. Including it would invalidate much of the corpus the moment a peer
+group formed.
+
+Measured on the real corpus, and worth stating because it is not what the
+edge count suggests: 100,723 `DERIVED_FROM` edges over 16,897 derived claims
+resolve to 100,723 *distinct* supports, each with exactly one dependent, and
+the deepest chain is one level. The mined heuristics form a flat bipartite
+graph, not a hierarchy — so on this corpus revision is shallow by
+construction, and the transitivity guarantee is there for corpora where it
+is not.
+
+The independent auditor gained the matching check and still imports nothing
+from the package — it re-derives the invariant from the stored rows, because
+an auditor that imports the code it audits cannot catch that code being wrong:
+
+```
+clean artifact                →  clean: True    exit 0   4.2s, 336,190 claims
+support retracted, no revise  →  clean: False   exit 1
+                                  stale_dependents: 1, naming both claims
+```
+
+The honest cost, stated in the ADR rather than discovered later: revision is
+**conservative**. Losing one of five supports invalidates a heuristic that
+four supports still justify. That is the wrong answer for a human, and the
+right one for a system whose claim is that a stale belief must not survive its
+own refutation. Relaxing it means an audited policy, not a smarter heuristic.
+
+## Earlier status
+
 **Phase 13 — exporter structure is not the author.**
 417 tests passing on Python 3.12, stdlib-only, offline.
 
@@ -264,6 +325,7 @@ Implemented so far:
 | Substrate store | sqlite3, real foreign keys, evidence spans verified against source text, provenance enforced at write time | `knowledge/store.py` |
 | Claim normalization | Conservative stemming and a closed negator list; anything ambiguous resolves toward `INCONCLUSIVE` | `knowledge/normalize.py` |
 | The evaluator | The only component that may move an epistemic state — and it returns a relation, never a score | `knowledge/evaluator.py` |
+| **The reviser** | Propagates a retraction transitively through derived and attested dependencies; only ever moves claims down | `knowledge/revision.py` |
 | Sentence segmentation | Deterministic, offset-exact, so every compiled claim is a **verbatim substring** of its source | `compile/segment.py` |
 | Merkle manifest | Artifact version = root over sorted content leaves; recompiling unchanged bytes is *not* a new version | `compile/manifest.py` |
 | Deterministic compiler | A pure function of source bytes; mines recurrence heuristics as graph claims | `compile/compiler.py` |

@@ -24,6 +24,16 @@ segments, so a candidate always contains the same tokens as its own evidence
 span. Test containment naively and every claim in every corpus becomes
 ``SUPPORTED``, forever, with perfect recall and zero information — the v0.1
 fabrication with a verdict attached.
+
+The subtle half of that rule took until ADR-019 to get right, and it is the
+half that actually fires on real data. "Its own evidence" is not a row identity:
+a claim's id hashes its source metadata, so one sentence in eleven documents is
+eleven claims with eleven ids, and excluding the subject by id excludes one of
+eleven. Attestation therefore requires a *different proposition*, not a
+different row. Getting this wrong looked exactly like success — 65% of a
+300-document slice came back ``SUPPORTED``, every record well-formed, every span
+verbatim, the auditor clean, and 98.6% of those verdicts attested only to
+copies of themselves.
 """
 
 from __future__ import annotations
@@ -222,11 +232,34 @@ class Evaluator:
             yield cid, norm
 
     def _attestations(self, subject_id: str, subject: Normalized) -> list[str]:
-        """Claims whose text contains the subject's proposition, contiguously."""
+        """Claims that say something the subject does not already say.
+
+        The subject's whole sequence must appear as a contiguous run in the
+        peer, **and** the peer's sequence must differ from the subject's
+        (ADR-019).
+
+        The inequality is the whole point. A claim's id is a hash over its
+        evidence span and source metadata, so the same sentence appearing in
+        eleven documents is eleven claims with eleven ids — correctly, since
+        each has its own provenance. Excluding the subject by *id* therefore
+        excludes one row out of eleven and lets the other ten attest it.
+
+        Eleven copies of "Looking forward to the conversation!" are one
+        sentence said once, not eleven witnesses to it. Before this check,
+        98.6% of all `SUPPORTED` verdicts on a 300-document slice were
+        attested only by byte-identical copies of themselves, which is
+        precisely the perfect-recall zero-information outcome ADR-006 §2.2
+        exists to prevent — reached through a different door.
+
+        A *strictly longer* peer still counts: that is a second claim
+        genuinely containing this one, which is the case `is_contiguous_in`
+        was written for.
+        """
         return [
             cid
             for cid in self._token_peers(subject_id, subject)
-            if subject.is_contiguous_in(self._norms[cid])
+            if self._norms[cid].sequence != subject.sequence
+            and subject.is_contiguous_in(self._norms[cid])
         ]
 
     def _contradictions(self, subject_id: str, subject: Normalized) -> list[str]:

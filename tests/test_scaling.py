@@ -251,11 +251,28 @@ class TestTheCandidateIndexesAreExact:
             assert ev._contradictions(cid, norm) == brute, cid
 
     def test_attestations_match_a_full_scan(self, evaluator):
+        """The index must not lose candidates *for the current predicate*.
+
+        The reference below restates the predicate rather than calling
+        `_attestations`, which is the point: it is an independent
+        implementation, so it detects the index dropping a peer the real
+        predicate would have kept.
+
+        ADR-019 added the sequence inequality, and this reference was updated
+        with it. That is the test working as intended rather than being
+        weakened -- had it been left on the old predicate it would have
+        reported a mismatch, and the tempting response would have been to
+        "fix" the index back. The reference has to state the rule being
+        checked, or it checks a rule nobody is using.
+        """
         ev = evaluator
         for cid, norm in ev._norms.items():
             brute = sorted(
-                c for c, n in ev._norms.items()
-                if c != cid and norm.is_contiguous_in(n)
+                c
+                for c, n in ev._norms.items()
+                if c != cid
+                and n.sequence != norm.sequence
+                and norm.is_contiguous_in(n)
             )
             assert ev._attestations(cid, norm) == brute, cid
 

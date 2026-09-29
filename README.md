@@ -14,11 +14,16 @@ corpus → compiler → versioned artifact → witness → agent interrogation
        → belief revision → next version
 ```
 
-Each arrow in that diagram is a component that exists and is tested. Two of
+Each arrow in that diagram is a component that exists and is tested. Three of
 them were, at different times, decorative: `belief revision` did not exist for
-eleven phases (ADR-017), and once it did, `→ next version` still pointed at
+eleven phases (ADR-017); once it did, `→ next version` still pointed at
 nothing, because the Merkle root could not see a claim's epistemic state change
-(ADR-018). The diagram is now a description rather than an aspiration.
+(ADR-018); and `evidence → verification` had never run on the current artifact
+at all, and when it did, 97% of the claims it marked `SUPPORTED` were attested
+only by copies of themselves (ADR-019). The diagram is now a description rather
+than an aspiration — but the pattern worth keeping is that **each of the three
+was found by running the thing, not by reading it**, and each looked like
+success while it was broken.
 
 ## Running it
 
@@ -28,7 +33,7 @@ no test or script reaches the network.
 ```bash
 git clone https://github.com/kliewerdaniel/ganymede4
 cd ganymede4
-python -m pytest          # 448 tests, ~14s
+python -m pytest          # 457 tests, ~18s
 ```
 
 `pip install -e .` is optional and currently only adds a broken console script
@@ -36,6 +41,90 @@ python -m pytest          # 448 tests, ~14s
 the artifact*.
 
 ## Status
+
+**Phase 16 — a duplicate is not a witness to itself.**
+457 tests passing on Python 3.12, stdlib-only, offline.
+
+The artifact had never been evaluated. It was compiled with `--no-evaluate`
+and carried 319,293 `UNEXAMINED` claims and **zero** evaluations, because the
+last full evaluation run was on the pre-ADR-012 artifact that was later
+deleted. So the `evidence → verification` arrow in the diagram above had never
+executed on the current artifact at all — the third arrow to be decorative,
+after belief revision and `→ next version`.
+
+Running it on a 300-document slice produced this:
+
+```
+supported      6,075   (65.5% of 9,273 claims)
+inconclusive   2,443
+derived          755
+contradictions     0
+```
+
+A 65% support rate from a deterministic *lexical* evaluator is not a plausible
+result, and it should have been the first thing that looked wrong. It was.
+Every sampled verdict looked like this:
+
+```
+SUBJECT : 'Looking forward to the conversation!'
+ATTESTER: 'Looking forward to the conversation!'
+ATTESTER: 'Looking forward to the conversation!'
+```
+
+The subject is attested by byte-identical copies of itself. There are eleven
+claims in the corpus with that exact text — it is a ChatGPT sign-off — and each
+one attests the other ten.
+
+[ADR-019](docs/adr/ADR-019-a-duplicate-is-not-a-witness.md): **97.1% of all
+`SUPPORTED` claims were attested only by copies of themselves.** Only **88**
+had a genuine attester.
+
+The cause is that "a claim may never be its own evidence" (ADR-006 §2.2) was
+implemented as an *id* comparison. A claim's id hashes its source metadata, so
+one sentence in eleven documents is eleven claims with eleven ids — correctly,
+each with its own provenance span. Excluding the subject by id excluded one row
+out of eleven and let the other ten attest it. Self-attestation does not
+require sharing an id; it requires sharing a **proposition**, and the
+attestation path never asked that question.
+
+The fix is one line — attestation now requires a *different normalized
+proposition*, not a different row:
+
+```python
+if self._norms[cid].sequence != subject.sequence
+and subject.is_contiguous_in(self._norms[cid])
+```
+
+Same slice, after: **6,075 → 88**, with zero remaining attestations by an
+equivalent claim, and the 88 survivors are genuine substring relationships. The
+fix is conservative in the documented direction — the excluded set only grows,
+so nothing moves *up* the spine, and duplicates land in `INCONCLUSIVE` with
+their neighbourhood recorded rather than being reported as an empty search.
+
+This is the most serious defect in the project so far, and the reason is worth
+stating plainly: **every individual record was correct.** The claims existed.
+The evidence spans were verbatim. The evaluation records were present. The
+auditor passed. Each of the 6,075 verdicts is a complete, well-formed,
+honestly-recorded finding — *of nothing*. The graph is not lying in any one
+place; it is lying in the relationship between places, which is the only place
+a lie can hide that no single check will find. ADR-006's docstring named this
+exact outcome as the thing it existed to prevent, and the project reached it
+anyway through a different door.
+
+**The auditor cannot catch this class**, and that is now demonstrated rather
+than assumed. Independent verification checks that records are internally
+consistent and true to their sources; no amount of that distinguishes a witness
+from an echo. It took reading the *verdicts* to find it.
+
+The regression tests deliberately use repeated text, and one of them pins *why*
+the defect survived eleven phases: the comfortable explanation is "the fixtures
+were single-source," and that is wrong — `ordinal` is in the content hash, so
+repeating a sentence inside one document already makes two claims. The real
+reason is simpler and worse: **no pre-ADR-019 fixture repeated a sentence at
+all.** The defect was not hidden by a fixture shape; it was absent from every
+example anyone wrote. Six of the nine new tests fail against the pre-fix code.
+
+## Earlier status
 
 **Phase 15 — a claim's state is part of what the artifact says.**
 448 tests passing on Python 3.12, stdlib-only, offline.
@@ -437,7 +526,7 @@ Implemented so far:
 | Vocabulary crosswalk | The estate's four incompatible claim enums mapped onto the spine; unmapped terms raise rather than guess | `knowledge/crosswalk.py` |
 | Substrate store | sqlite3, real foreign keys, evidence spans verified against source text, provenance enforced at write time | `knowledge/store.py` |
 | Claim normalization | Conservative stemming and a closed negator list; anything ambiguous resolves toward `INCONCLUSIVE` | `knowledge/normalize.py` |
-| The evaluator | The only component that may move an epistemic state — and it returns a relation, never a score | `knowledge/evaluator.py` |
+| The evaluator | The only component that may move an epistemic state — and it returns a relation, never a score. Requires a *different proposition* to attest, not merely a different row | `knowledge/evaluator.py` |
 | **The reviser** | Propagates a retraction transitively through derived and attested dependencies; only ever moves claims down | `knowledge/revision.py` |
 | Sentence segmentation | Deterministic, offset-exact, so every compiled claim is a **verbatim substring** of its source | `compile/segment.py` |
 | Merkle manifest | Artifact version = root over sorted content leaves **and every claim's epistemic state**; recompiling unchanged bytes is *not* a new version | `compile/manifest.py` |
@@ -463,8 +552,15 @@ widened — [ADR-004](docs/adr/ADR-004-compiler-authority-and-manifest.md).
 
 **The evaluator cannot certify what it cannot show.** It returns one of four
 *relations* and never a number, so there is nothing to threshold. `SUPPORTED` is
-unreachable unless another claim literally states the proposition —
-[ADR-006](docs/adr/ADR-006-evaluator.md).
+unreachable unless a *different* claim literally states the proposition —
+[ADR-006](docs/adr/ADR-006-evaluator.md). Different in **proposition**, not in
+row: for eleven phases the check compared claim ids, and since a claim's id
+hashes its source metadata, a sentence copied into eleven documents was eleven
+ids attesting each other, and 97% of every `SUPPORTED` verdict the evaluator
+had ever produced rested on nothing but repetition —
+[ADR-019](docs/adr/ADR-019-a-duplicate-is-not-a-witness.md). The failure was
+invisible to every structural check in this project because every record was
+true; it is visible only in the *relation* between records.
 
 **The gateway cannot permit what nobody granted.** An absent policy, an
 unmatched request, a violated constraint, and an absent constrained argument

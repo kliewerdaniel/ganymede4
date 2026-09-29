@@ -16,8 +16,8 @@ corpus → compiler → versioned artifact → witness → agent interrogation
 
 ## Status
 
-**Phase 4 — the evaluator: states can now move, and every move is recorded.**
-209 tests passing on Python 3.12, stdlib-only, offline.
+**Phase 5 — the policy gateway: no action without a decision, no decision
+without a record.** 252 tests passing on Python 3.12, stdlib-only, offline.
 
 Implemented so far:
 
@@ -29,49 +29,56 @@ Implemented so far:
 | Vocabulary crosswalk | The estate's four incompatible claim enums mapped onto the spine; unmapped terms raise rather than guess | `knowledge/crosswalk.py` |
 | Substrate store | sqlite3, real foreign keys, evidence spans verified against source text, provenance enforced at write time | `knowledge/store.py` |
 | Claim normalization | Conservative stemming and a closed negator list; anything ambiguous resolves toward `INCONCLUSIVE` | `knowledge/normalize.py` |
+| The evaluator | The only component that may move an epistemic state — and it returns a relation, never a score | `knowledge/evaluator.py` |
 | Sentence segmentation | Deterministic, offset-exact, so every compiled claim is a **verbatim substring** of its source | `compile/segment.py` |
 | Merkle manifest | Artifact version = root over sorted content leaves; recompiling unchanged bytes is *not* a new version | `compile/manifest.py` |
 | Deterministic compiler | A pure function of source bytes; mines recurrence heuristics as graph claims | `compile/compiler.py` |
 | Lexical retriever | Deterministic BM25, stdlib only, with the method id disclosed on every result | `witness/retrieval.py` |
 | The witness | A read-only, version-bound view that answers with typed, provenanced answers | `witness/witness.py` |
-| **The evaluator** | The only component that may move a state — and it returns a relation, never a score | `knowledge/evaluator.py` |
+| **The policy gateway** | Fail-closed authorization; decisions are content-addressed and hash-chained | `policy/gateway.py` |
 | Independent auditor | Separate process, stdlib only, imports nothing from the package — walks every claim to a source offset | `scripts/audit_provenance.py` |
 
-### The three rules that carry the thesis
+### The four rules that carry the thesis
 
 **The compiler cannot assign an epistemic state.** Every claim it writes is
 `UNEXAMINED`, enforced by a guard that raises if `COMPILE_PERMITTED_STATES` is
-widened — [ADR-004](docs/adr/ADR-004-compiler-authority-and-manifest.md). A test
-parses the compile package's AST and fails if any executable node so much as
-names a confidence value.
+widened — [ADR-004](docs/adr/ADR-004-compiler-authority-and-manifest.md).
 
 **The witness cannot assert absence without showing its work.** It has no
-`answer() -> str`; every answer is a typed `WitnessAnswer` carrying a state, the
-claims, and resolved offsets — [ADR-005](docs/adr/ADR-005-witness-and-absence.md).
-A miss returns a real `UNRESOLVED` answer *plus* an `Investigation` record
-naming the query, the scope, the method, and the version searched. Absence lives
-inside the state machine, not beside it as a flag.
+`answer() -> str`; a miss returns a real `UNRESOLVED` answer *plus* an
+`Investigation` record naming the query, scope, method, and version searched —
+[ADR-005](docs/adr/ADR-005-witness-and-absence.md).
 
 **The evaluator cannot certify what it cannot show.** It returns one of four
-*relations* — `ATTESTED`, `CONTRADICTED`, `INCONCLUSIVE`, `UNRESOLVED` — and
-never a number, so there is nothing to threshold — [ADR-006](docs/adr/ADR-006-evaluator.md).
-`SUPPORTED` is unreachable unless another claim in the same corpus literally
-states the proposition, and the attesting claim ids are recorded. `INCONCLUSIVE`
-is the common case, which is the honest name for the relationship between
-lexical overlap and entailment.
+*relations* and never a number, so there is nothing to threshold. `SUPPORTED` is
+unreachable unless another claim literally states the proposition —
+[ADR-006](docs/adr/ADR-006-evaluator.md).
 
-It is **sound but incomplete**: every verdict is correct, and it misses
-contradictions a careful reader would spot. That asymmetry is the design. A
-missed contradiction is a gap an operator closes; a manufactured one destroys a
-true claim, and `CONTRADICTED` is effectively absorbing.
+**The gateway cannot permit what nobody granted.** An absent policy, an
+unmatched request, a violated constraint, and an absent constrained argument
+all produce `DENY`. There is no path that returns ALLOW because nothing
+objected — [ADR-007](docs/adr/ADR-007-policy-gateway.md).
+
+> **Absence of restriction is not permission.** A capability exists only where
+> a grant names it. An allow-by-default system makes the safe path the one
+> nobody remembered to restrict, and a missing rule silently becomes a grant.
+
+Every decision is content-addressed and hash-chained, and **the chain covers the
+verdict and the reason, not just an id**. With the verdict excluded, flipping a
+recorded `DENY` to `ALLOW` and leaving the hash untouched verifies clean — that
+was the original implementation, and the test that should have caught it was
+itself flipping a verdict that was already `ALLOW`, so it changed nothing and
+passed. A tamper test that proves nothing is worse than no tamper test.
 
 Verified by real execution, including adversarial cases:
 
 ```
 clean artifact           →  clean: True   exit 0
 source rewritten after   →  clean: False  exit 1, 3 span mismatches
-witness on that artifact →  raises, same mismatch, independently
 evaluations deleted      →  clean: False  exit 1, 3 unjustified states
+gateway, no policy       →  DENY on every request
+/path traversal          →  DENY after canonicalization
+flipped verdict          →  chain fails to verify
 conflict pair compiled   →  2 contradicted, 2 inconclusive, 0 supported
 one byte changed         →  new Merkle root
 same bytes, reordered    →  identical root

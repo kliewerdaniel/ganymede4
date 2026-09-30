@@ -94,7 +94,7 @@ SUBJECT : 'You can download it from Python’s official website.'
 ATTESTER: "You can download it from [Python's official website](https://www."
 ```
 
-The other verdicts came back mostly clean: only 5 of 596 contradictions
+The other verdicts came back mostly clean: only 5 of 402 contradictions
 involve containment, so no containment rule was applied there. The 16,897
 mined `DERIVED` heuristics are dominated by file-watcher noise
 (`"py first seen with mtime 1729088249" occurs in 17 distinct sources`) —
@@ -137,6 +137,16 @@ rather than landed half-migrated (ADR-023).
 The first completed full-corpus evaluation finished: **319,293 evaluations over
 336,190 claims**, 8,646 `SUPPORTED`, 596 `CONTRADICTED`, 310,051
 `INCONCLUSIVE`, 16,897 `DERIVED`. Then the independent auditor refused it.
+
+> The 596 above is *that* run, and it is stale as a current number. It was
+> produced by a process that had already imported the evaluator before the
+> ADR-020 patch landed, so it still contains the empty-term contradiction
+> class. A later post-ADR-020 run over the same 336,190 claims gives **402
+> `CONTRADICTED`** and 310,245 `INCONCLUSIVE`, with `SUPPORTED` unchanged at
+> 8,646 — ADR-020 only ever removed contradictions. I verified the class is
+> gone rather than assuming it: re-tokenising all 402 subjects and all their
+> contradicting peers finds **zero** with an empty term set, against the
+> non-empty requirement. Audited clean, exit 0.
 
 ```json
 "clean": false,

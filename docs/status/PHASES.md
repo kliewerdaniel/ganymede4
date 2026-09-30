@@ -458,3 +458,90 @@ module behind it. The rename deliberately left it consistent-but-broken rather
 than half-fixed, because inventing a CLI surface is a design decision, not a
 rename. Until it is built, the entry point is `python -m pytest` and the
 `scripts/` directory.
+
+## Phase 19 Task 5 — one-command clean-clone rebuild (COMPLETE)
+
+Committed and pushed: `368c821..ee44de9`. Working tree clean, `0 0`.
+
+### Real-corpus one-command build (the actual deliverable)
+
+One command, from a clean clone, on the real corpus:
+
+    python scripts/build_artifact.py --db build/ganymede4-corpus.db
+
+| | measured |
+|---|---|
+| documents | 18,930 (35.8 MB) |
+| machine turns fenced | 8,377 (44%) |
+| compile | 175.7s |
+| total build | 4,713.5s |
+| compile-only root | `7e506ea556f633747ee9e703e675ef390c870cf141114098d144a6214b70ffce` |
+| reversed-order recompile | identical |
+| final version | `v1-49f86ced09fcb43b` |
+| final root | `49f86ced09fcb43bf9964d686734453895f1f1cf1b89ac01b9e3492f40d1bf67` |
+| state epoch | 319,293 |
+| state digest | `c67635410714813c61dd36cbe195bace0e5217087486e8a745856d4476dc9355` |
+| audit (separate process) | exit 0, clean |
+
+The compile-only root and every final identity value reproduce the canonical
+artifact exactly. This is the strongest available statement: the one-command
+path and the incremental path that produced `/tmp/v424.db` over five phases are
+the same computation.
+
+Verdicts: 311,718 inconclusive / 16,897 derived / 7,173 supported / 402
+contradicted, from 319,293 evaluations.
+
+### Clean-clone validation
+
+`git clone` → `python3 -m venv` → `pip install .` → run the console from a
+directory with no repository in sight. Build, audit, verify, query all pass;
+`--corpus` and `GANYMEDE4_CORPUS_ROOT` produce identical identity; generated
+artifacts untracked.
+
+This is where the substantive defects were found. All were invisible from a
+source checkout, because in a checkout the scripts are simply present:
+
+- `verify --audit` printed `clean: None` and exited **0**. The auditor path was
+  derived from the installed module's location, where no `scripts/` directory
+  exists. A verification command that cannot find its own checker reported
+  success.
+- Neither `audit_provenance.py` nor `build_artifact.py` was in the wheel at
+  all, so an install shipped a console unable to do its one job.
+- `--force` *added* `--keep-existing`, so it meant "never overwrite". Every
+  console build refused to write, citing a flag the user never passed.
+
+Fixed in `913a2eb` and `ee44de9`. ADR-025.
+
+### Tests
+
+**553 passed, 1 skipped, 40.0s** (500 before this task).
+
+### ADR-026: what the root could not see
+
+Two row edits were invisible to the root *and* to the auditor:
+
+| tamper | root | auditor (before) | auditor (now) |
+|---|---|---|---|
+| `claims.text` | no | clean, exit 0 | **detected, exit 1** |
+| `sources.content` | no | clean, exit 0 | **detected, exit 1** |
+| `evidence.text` | no | detected | detected |
+
+The root hashes content-addressed claim *ids*, so editing text without
+recomputing the id cannot move it. That is content addressing, not a bug — a
+root that reacted would have to hash the text, destroying ADR-004's guarantee
+that compilation is a pure function of source bytes.
+
+The hole was that `sources.checksum` existed since Phase 0, was written at
+insert time, and **nothing ever read it back**.
+
+Verified on all 319,293 real rows: zero false positives, audit 6.5s → 10.4s.
+Cost: +3.9s for two whole-table passes. The alternative is a checker that
+misses the exact property the project's thesis rests on.
+
+### Still not detected
+
+Deleting an `evidence` row is caught by the root (`verify` exits 1) but not by
+the independent auditor. The auditor can check that evidence resolves, not that
+it is *complete*. Recorded in ADR-026 rather than fixed: a completeness
+assertion needs a definition of what a claim should cite, and guessing one
+would be the threshold-fitting this project keeps declining to do.

@@ -143,6 +143,22 @@ class Verdict:
         }
 
 
+def _contains_verbatim(subject_text: str, peer_text: str) -> bool:
+    """Does the peer's raw text contain the subject's raw text, exactly?
+
+    Deliberately checks the *text*, not the normalized form. Normalized
+    containment is what `is_contiguous_in` already implements, and that is the
+    predicate that let the corpus defect through: the subject's token sequence
+    appears inside the peer's, so the two "matched", while the subject was in
+    fact simply a fragment of the peer. Text containment is the honest
+    statement of the defect -- a fragment cut out of a longer line.
+
+    Compared on stripped text, because the compiler emits verbatim spans and
+    the only difference that matters here is content, not edge whitespace.
+    """
+    return subject_text.strip() in peer_text.strip()
+
+
 class Evaluator:
     """Assigns epistemic states, one claim at a time, with a record each time.
 
@@ -251,15 +267,65 @@ class Evaluator:
         precisely the perfect-recall zero-information outcome ADR-006 §2.2
         exists to prevent — reached through a different door.
 
-        A *strictly longer* peer still counts: that is a second claim
-        genuinely containing this one, which is the case `is_contiguous_in`
-        was written for.
+        A *strictly longer* peer used to count here, on the argument that a
+        second claim containing this one is a second witness. ADR-024 is the
+        correction, and it is a correction of a decision that was made
+        deliberately and documented as such. Reading the verdicts rather than
+        the auditor is what showed the assumption was wrong:
+
+            SUBJECT: 'Use Ollama to summarize text'
+            ATTESTER: 'Use Ollama to summarize text with contextual metadata'
+
+        17.0% of every `SUPPORTED` verdict on the real 336,190-claim artifact
+        had *every* attester containing it verbatim. 11.5% of subjects of 40
+        characters or fewer were supported only that way. The container is the
+        same assertion with more words around it, so it carries no evidence
+        about the subject that the subject did not already contain -- it is
+        the subject. A URL inside a longer line does not confirm the URL, and
+        the same prompt typed into a second chat window is not a second
+        witness.
+
+        What is excluded is **containment itself**: a peer that contains the
+        subject verbatim is not an independent witness of it, whatever else
+        the peer goes on to say. This is the narrow, structural rule. A
+        "the peer adds too little" test would be a length threshold fitted to
+        this corpus, which the standing rules forbid, and an earlier attempt at
+        one -- excluding peers that add only non-content words -- was checked
+        against the corpus and does not work: the real containers DO add
+        content words ("with contextual metadata"), so that rule would have
+        excluded almost nothing and looked like a fix.
+
+        The cost is real and is accepted knowingly. A claim embedded in a
+        longer, genuinely distinct claim now loses that weak corroboration.
+        That is the conservative direction -- the excluded set only grows, and
+        what it grows into is "no evidence", never "a different conclusion".
+
+        Measured cost, and it is a cost and not a collapse: classifying every
+        attester in an 800-claim sample of the real corpus, 94.4% of attesters
+        are genuine restatements (neither byte-identical nor containers) and
+        only 5.6% are containers. Replaying the new rule over the existing
+        peer groups, 1,473 of 8,646 SUPPORTED claims lose every attester
+        (17.0%) and 7,173 (83.0%) retain at least one:
+
+            before:  8,646 SUPPORTED
+            after :  7,173 SUPPORTED   (projection, over existing peer groups)
+
+        So attestation gets harder to reach, but it keeps working. The shape
+        that survives is a text variant of the same assertion -- a URL wrapped
+        in markdown, a word inserted inside the span -- whose normalized
+        sequence is a proper prefix of the peer's:
+
+            SUBJECT: "You can download it from Python's official website."
+            ATTESTER: "You can download it from [Python's official website](https://www."
         """
         return [
             cid
             for cid in self._token_peers(subject_id, subject)
             if self._norms[cid].sequence != subject.sequence
             and subject.is_contiguous_in(self._norms[cid])
+            and not _contains_verbatim(
+                self._texts[subject_id], self._texts[cid]
+            )
         ]
 
     def _contradictions(self, subject_id: str, subject: Normalized) -> list[str]:

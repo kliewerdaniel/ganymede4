@@ -33,7 +33,7 @@ no test or script reaches the network.
 ```bash
 git clone https://github.com/kliewerdaniel/ganymede4
 cd ganymede4
-python -m pytest          # 496 tests, ~20s
+python -m pytest          # 496 tests, ~3 min (two real-corpus tests dominate)
 ```
 
 `pip install -e .` is optional and currently only adds a broken console script
@@ -44,7 +44,65 @@ the artifact*.
 
 **Phase 19 — read the verdicts, then prove no later write can invalidate an
 earlier invariant.**
-496 tests passing on Python 3.12, stdlib-only, offline.
+500 tests passing on Python 3.12, stdlib-only, offline.
+
+### Task 2 — the verdicts had been read, and 17% of them were one claim wearing three hats
+
+The independent auditor answers *is this artifact internally consistent*. It
+never answered *do these verdicts mean anything* — and it has now reported
+`clean: true` on four separate artifacts whose verdicts were vacuous. So
+`scripts/read_verdicts.py` reads them: raw stdlib `sqlite3`, importing nothing
+from the package, writing nothing, every number counted.
+
+`SUPPORTED` requires an attester. ADR-019 stopped a byte-identical copy from
+being one. It never asked whether **a longer claim that swallows the subject
+verbatim** is a second witness. It is not, and the code had deliberately
+allowed it, on a documented rationale.
+
+| over the real 336,190-claim artifact | count | share of SUPPORTED |
+|---|---|---|
+| `SUPPORTED` | 8,646 | |
+| subject is a substring of **every** attester | 1,473 | **17.0%** |
+| short subjects (≤40 chars) supported *only* that way | 609 | 11.5% |
+
+```
+SUBJECT : 'Use Ollama to summarize text'
+ATTESTER: 'Use Ollama to summarize text with contextual metadata'
+```
+
+Those 609 claims have no independent witness at all. A container and its
+content are one assertion at two lengths — ADR-019's perfect-recall failure
+through a different door.
+
+The fix is structural, not lexical: containment is not evidence. A narrower
+"the peer adds too little" rule was written and **discarded before measuring**,
+because the real containers do add content words (`with contextual metadata`);
+it would have excluded almost nothing while looking like a fix.
+
+It is a cost, not a collapse. Over 800 sampled claims, 94.4% of attesters are
+genuine restatements and 5.6% are containers. Replaying the rule over the
+existing peer groups: 1,473 lose their last attester (17.0%), **7,173 retain
+one**. So `SUPPORTED` projects 8,646 → **7,173**. (A projection over existing
+peer groups, exact for this rule because the fix only removes attesters; a
+fresh full evaluation is in flight.)
+
+What still attests is a *text variant* of the same assertion — a URL wrapped
+in markdown, a word inserted in the span:
+
+```
+SUBJECT : 'You can download it from Python’s official website.'
+ATTESTER: "You can download it from [Python's official website](https://www."
+```
+
+The other verdicts came back mostly clean: only 5 of 596 contradictions
+involve containment, so no containment rule was applied there. The 16,897
+mined `DERIVED` heuristics are dominated by file-watcher noise
+(`"py first seen with mtime 1729088249" occurs in 17 distinct sources`) —
+reported, not filtered, because that needs a hand-labelled sample. The five
+other people's Reddit submissions are correctly separated by source type: 40
+claims, all `inconclusive`.
+
+[ADR-024](docs/adr/ADR-024-a-container-is-not-a-second-witness.md).
 
 Phase 18 fixed one store that lied about its beliefs. Phase 19 stopped waiting
 for the next accident and hunted the *shape* instead: a seeded run of legal
@@ -149,7 +207,7 @@ decoration.**
 ## Earlier status
 
 **Phase 17 — two claims that share nothing are not a contradiction.**
-467 tests passing on Python 3.12, stdlib-only, offline.
+457 tests passing on Python 3.12, stdlib-only, offline.
 
 Reading the verdicts of the run above surfaced a second evaluator defect,
 narrower to fix and more dangerous in kind, because `CONTRADICTED` is

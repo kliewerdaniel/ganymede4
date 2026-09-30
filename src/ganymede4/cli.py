@@ -124,7 +124,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--python", default=sys.executable)
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--no-evaluate", action="store_true")
-    p.add_argument("--force", action="store_true", help="overwrite an existing --db")
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing --db (without it, an existing file is "
+             "left alone and the build refuses)",
+    )
 
     p = sub.add_parser("audit", help="run the independent auditor on an artifact")
     p.add_argument("db", help="path to the artifact database")
@@ -175,11 +180,12 @@ def _cmd_build(args: argparse.Namespace) -> int:
         argv += ["--limit", str(args.limit)]
     if args.no_evaluate:
         argv += ["--no-evaluate"]
-    if args.force:
-        # build_artifact.py overwrites by default and refuses under
-        # --keep-existing, so --force is expressed as its absence.
-        pass
-    else:
+    # Inverted in the first version of this console: `--force` added
+    # `--keep-existing`, so the flag meant the opposite of its name and every
+    # build through the console refused to overwrite anything. The script
+    # overwrites by default; `--force` is expressed as the *absence* of the
+    # guard, and no flag means no guard.
+    if not args.force:
         argv += ["--keep-existing"]
 
     return subprocess.run(argv, cwd=str(script.parent.parent)).returncode

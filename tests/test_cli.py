@@ -250,6 +250,46 @@ def test_an_empty_json_report_is_a_failure(tmp_path):
     )
 
 
+def test_force_controls_overwriting_and_the_flag_is_not_inverted(tmp_path):
+    """`--force` must mean overwrite.
+
+    It meant the opposite in the first version of this console: `--force`
+    *added* ``--keep-existing`` to the build script's argv, which is the flag
+    that forbids overwriting. Every build through the console therefore
+    refused to write anywhere, and the error named a flag the user had never
+    passed. A flag whose name contradicts its effect is worse than no flag,
+    because it teaches the reader that error messages are not to be believed.
+    """
+    py = _installed_console(tmp_path)
+    corpus = tmp_path / "corpus"
+    (corpus / "reddit" / "comments").mkdir(parents=True)
+    (corpus / "reddit" / "comments" / "a.md").write_text(
+        "---\nauthor: KonradFreeman\n---\n\nProvenance is enforced here.\n"
+    )
+    db = tmp_path / "f.db"
+    common = ["-m", "ganymede4.cli", "build", "--db", str(db),
+              "--corpus", str(corpus), "--python", str(py)]
+
+    first = subprocess.run([str(py), *common], capture_output=True,
+                           text=True, cwd=str(tmp_path), timeout=300)
+    assert first.returncode == 0, first.stdout[-1500:] + first.stderr[-800:]
+    assert db.is_file()
+    stamp = db.stat().st_mtime_ns
+
+    # Without --force, an existing artifact must be left alone.
+    second = subprocess.run([str(py), *common], capture_output=True,
+                            text=True, cwd=str(tmp_path), timeout=300)
+    assert second.returncode != 0, "an existing artifact was overwritten silently"
+    assert db.stat().st_mtime_ns == stamp, "the artifact was modified"
+
+    # With --force, it must be replaced -- and must say so in help text that
+    # matches the behaviour.
+    third = subprocess.run([str(py), *common, "--force"], capture_output=True,
+                           text=True, cwd=str(tmp_path), timeout=300)
+    assert third.returncode == 0, third.stdout[-1500:] + third.stderr[-800:]
+    assert db.stat().st_mtime_ns != stamp, "--force did not overwrite"
+
+
 def test_build_finds_its_script_from_an_installed_console(tmp_path):
     """`build` had the same path bug as `audit`, and would have failed closed
     but unhelpfully. It must resolve its script the same way."""

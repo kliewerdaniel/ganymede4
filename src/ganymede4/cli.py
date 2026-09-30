@@ -42,6 +42,34 @@ __all__ = ["main", "build_parser"]
 
 _HERE = Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent
+def _repo_script(name: str) -> Path:
+    """Find a file in the repository's ``scripts/`` directory.
+
+    Shared by ``audit`` and ``build``. Both were broken the same way.
+    """
+    override = os.environ.get("GANYMEDE4_SCRIPTS")
+    if override:
+        candidate = Path(override).expanduser() / name
+        if candidate.is_file():
+            return candidate
+    roots = [Path(__file__).resolve(), Path.cwd().resolve() / "_"]
+    for root in roots:
+        for parent in root.parents:
+            candidate = parent / "scripts" / name
+            if candidate.is_file():
+                return candidate
+    # The copy shipped inside the installed package. This is the case a
+    # checkout can never exercise, which is why the defect was invisible until
+    # the console was installed into a virtualenv.
+    packaged = Path(__file__).resolve().parent / "_scripts" / name
+    if packaged.is_file():
+        return packaged
+    raise FileNotFoundError(
+        f"could not find scripts/{name}. It is required and must not be "
+        "skipped; set GANYMEDE4_SCRIPTS to the directory holding it."
+    )
+
+
 def _auditor_script() -> Path:
     """Locate ``audit_provenance.py`` from an installed console.
 
@@ -127,9 +155,13 @@ def _cmd_build(args: argparse.Namespace) -> int:
     with two answers, and the project's own rule is that a console which
     disagrees with the pipeline is a defect, not a convenience.
     """
-    script = _SCRIPTS / "build_artifact.py"
-    if not script.exists():  # pragma: no cover - only in a broken install
-        print(f"cannot find {script}", file=sys.stderr)
+    # Resolved the same way the auditor is, and for the same reason: the
+    # installed-module layout has no `scripts/` beside it. `build` had the
+    # identical bug and would have failed closed but unhelpfully.
+    try:
+        script = _repo_script("build_artifact.py")
+    except FileNotFoundError as exc:
+        print(f"cannot run the build: {exc}", file=sys.stderr)
         return 2
 
     argv = [
@@ -150,7 +182,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
     else:
         argv += ["--keep-existing"]
 
-    return subprocess.run(argv, cwd=str(_REPO)).returncode
+    return subprocess.run(argv, cwd=str(script.parent.parent)).returncode
 
 
 # ------------------------------------------------------------------ audit

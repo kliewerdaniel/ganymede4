@@ -27,6 +27,25 @@ ganymede4 = "ganymede4.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# ADR-025: the console needs `scripts/audit_provenance.py` and
+# `scripts/build_artifact.py` at runtime, but they live outside `src/` and were
+# therefore not in the wheel at all. An installed console could not run its own
+# auditor. This was found by installing into a virtualenv and running the
+# console, not by any test in a checkout -- inside a checkout the files are
+# right there, so the defect is invisible.
+#
+# So they are also shipped, as `ganymede4/_scripts/`, and installed from there
+# when the repository layout is not available. The auditor's independence is
+# unaffected: it still does not import the package. Being shipped *alongside*
+# it is not the same as depending on it -- the whole point of the separate
+# process is that it could have been written by someone who never read this
+# package.
+#
+# `src/ganymede4/_scripts/` holds copies, and `tests/test_packaging.py` asserts
+# the copies are byte-identical to the originals, so the two cannot drift.
+[tool.setuptools.package-data]
+ganymede4 = ["_scripts/*.py"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

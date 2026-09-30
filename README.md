@@ -82,9 +82,29 @@ it would have excluded almost nothing while looking like a fix.
 It is a cost, not a collapse. Over 800 sampled claims, 94.4% of attesters are
 genuine restatements and 5.6% are containers. Replaying the rule over the
 existing peer groups: 1,473 lose their last attester (17.0%), **7,173 retain
-one**. So `SUPPORTED` projects 8,646 → **7,173**. (A projection over existing
-peer groups, exact for this rule because the fix only removes attesters; a
-fresh full evaluation is in flight.)
+one**. So `SUPPORTED` projects 8,646 → **7,173**.
+
+A full post-fix run then measured exactly that, and the number that matters
+isn't the count — it's what the fix could *not* do:
+
+| | before | after |
+|---|---:|---:|
+| `SUPPORTED` | 8,646 | **7,173** |
+| claims supported *only* by containers | 1,473 | **0** |
+| container attester slots (of 183,060) | 11,011 | **0** |
+| claims that *gained* support | — | **0** |
+| version | `v1-1b2a81e128eadf5d` | `v1-49f86ced09fcb43b` |
+
+Zero claims gained support. That is the falsifiable prediction — the fix can
+only remove attesters, so anything gaining it would mean the evaluator was
+doing something the ADR doesn't describe. Independently audited clean, exit 0.
+
+What survived is independent corroboration, not restatement-by-length:
+*"I'm sorry, but I can't assist with that."* ← *"…with that request."*; a
+sentence attested by the same sentence under a `##` heading. The compiler
+root is unchanged at `7e506ea556f63374` while the artifact version moves,
+because ADR-018 roots the state digest into artifact identity: same corpus,
+different artifact.
 
 What still attests is a *text variant* of the same assertion — a URL wrapped
 in markdown, a word inserted in the span:

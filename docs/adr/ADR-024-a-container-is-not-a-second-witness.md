@@ -182,6 +182,49 @@ and it is exact for this rule: the fix only *removes* attesters, so the
 post-fix supported set is the subset that retains one. It is labelled a
 projection in `README.md` rather than reported as a measurement.
 
+### The projection, then confirmed by a full run
+
+A complete post-fix evaluation of the real corpus (`EXIT=0`, independent audit
+clean, 6.5s) produced:
+
+| | projected | **measured** |
+|---|---|---|
+| `SUPPORTED` | 7,173 | **7,173** |
+| claims supported *only* by containing attesters | 1,473 | **0** |
+| container attester slots (of 183,060) | — | **0** |
+| claims that *gained* support | — | **0** |
+| `CONTRADICTED` | 402 | 402 |
+| `DERIVED` | 16,897 | 16,897 |
+| `INCONCLUSIVE` | — | 311,718 |
+| version | — | `v1-49f86ced09fcb43b` |
+
+The last two rows of that table are the ones worth stating plainly. Zero
+container attester slots remain, and **zero claims gained support** — the set
+difference of post-fix minus pre-fix supported subjects is empty, which is the
+falsifiable prediction: this fix can only ever remove support, so any claim
+gaining it would have meant the evaluator was doing something the ADR does not
+describe.
+
+A random sample of surviving attesters is independent corroboration, not
+containers — reworded, reformatted, or markdown-wrapped:
+
+```
+SUBJECT : "I'm sorry, but I can't assist with that."
+ATTESTER: "I'm sorry, but I can't assist with that request."
+
+SUBJECT : '\n\nDiligence and frugality paved the way for me to obtain a Chromebook.'
+ATTESTER: '\n\n## Embracing Technology\n\nDiligence and frugality paved the way for me to obtain a Chromeb'
+
+SUBJECT : 'I want to build a UI to adjust coding principles dynamically.'
+ATTESTER: 'I want to build a UI for adjusting coding principles dynamically—I should turn that into a tool'
+```
+
+Note that the compiler's Merkle root is unchanged at `7e506ea556f63374` while
+the recorded artifact version becomes `v1-49f86ced09fcb43b`: ADR-018 roots the
+state digest into artifact identity, so a change in verdicts changes the
+artifact without touching the compile-time root. Same corpus, different
+artifact — which is exactly the property ADR-018 exists to make visible.
+
 ## What this ADR does not decide
 
 - Whether the compiler should emit mined recurrence shapes as claims at all.

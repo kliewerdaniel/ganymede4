@@ -659,6 +659,18 @@ class Store:
             "state_epoch": int(row["state_epoch"]),
         }
 
+    def recorded_artifact_unflushed(self) -> dict[str, Any] | None:
+        """The recorded identity, without flushing a pending seal.
+
+        Public because a reader that is *checking* the store against its own
+        recorded identity must not cause the flush that would make the check
+        pass. Flushing first and then comparing would compare the store to a
+        digest that was just recomputed from it -- always equal, and therefore
+        always clean. `recorded_artifact()` remains the right call for "what
+        do you currently hold?".
+        """
+        return self._recorded_artifact_raw()
+
     def recorded_artifact(self) -> dict[str, Any] | None:
         """What this store last declared itself to be, or ``None``.
 

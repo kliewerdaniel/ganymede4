@@ -33,6 +33,7 @@ Keeping them and marking them is the honest move.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,7 +49,13 @@ __all__ = [
     "corpus_stats",
 ]
 
-CORPUS_ROOT = Path.home() / "Projects" / "Chris"
+#: Where the corpus lives. A *default*, not a constant: the brief for this
+#: project requires that no machine-specific absolute path be baked into the
+#: code, only used when nothing else is specified. ``GANYMEDE4_CORPUS_ROOT``
+#: overrides it, so a clean clone elsewhere reads the same artifact.
+CORPUS_ROOT = Path(
+    os.environ.get("GANYMEDE4_CORPUS_ROOT", Path.home() / "Projects" / "Chris")
+).expanduser()
 AUTHOR = "KonradFreeman"
 
 #: The author speaking. First-person testimony.

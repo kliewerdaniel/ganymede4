@@ -1,6 +1,7 @@
 # Open: what is a contradiction in a corpus that contains source code?
 
-**Status:** Open — measured, not decided
+**Status:** Open — measurement done, instrument shipped, awaiting labels
+**See also:** ADR-027 (PROPOSED), `docs/labelling/CONTRADICTIONS.md`
 **Date:** 2026-09-29
 **Related:** ADR-006, ADR-012, ADR-020
 

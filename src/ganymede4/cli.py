@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -41,7 +42,40 @@ __all__ = ["main", "build_parser"]
 
 _HERE = Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent
-_SCRIPTS = _REPO / "scripts"
+def _auditor_script() -> Path:
+    """Locate ``audit_provenance.py`` from an installed console.
+
+    This was a real bug, found by installing the console into a virtualenv
+    rather than running it from a checkout. The path was derived from the
+    *installed* module's location, which under a venv is
+    ``site-packages/ganymede4/`` -- and there is no ``scripts/`` directory
+    there. The auditor silently did not run.
+
+    Resolution order:
+
+    1. An explicit override, for a packaged install that ships the auditor
+       beside the module or in a data directory.
+    2. Walk upward from this file looking for ``scripts/audit_provenance.py``.
+       This is the checkout case and the ``pip install -e`` case.
+    3. Walk upward from the *current working directory* as well, so running
+       the console from a clone finds the clone's auditor.
+    4. Give up loudly rather than guessing.
+    """
+    override = os.environ.get("GANYMEDE4_AUDITOR")
+    if override:
+        return Path(override).expanduser()
+    names = ("audit_provenance.py",)
+    roots = [Path(__file__).resolve(), Path.cwd().resolve() / "_"]
+    for root in roots:
+        for parent in root.parents:
+            candidate = parent / "scripts" / names[0]
+            if candidate.is_file():
+                return candidate
+    raise FileNotFoundError(
+        "could not find scripts/audit_provenance.py. The independent auditor "
+        "is required and must not be skipped; set GANYMEDE4_AUDITOR to its "
+        "path if it is installed somewhere else."
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -121,18 +155,37 @@ def _cmd_build(args: argparse.Namespace) -> int:
 
 # ------------------------------------------------------------------ audit
 def _audit(db: str, python: str | None = None) -> tuple[int, dict]:
-    script = _SCRIPTS / "audit_provenance.py"
+    """Run the independent auditor, or fail.
+
+    The second defect this fixes is the more serious one. When the auditor
+    could not be found, this returned ``{}`` with exit 0, and callers printed
+    ``clean: None`` and reported success. A verification command that cannot
+    find its own checker and says "fine" converts a broken install into an
+    apparent clean bill of health, and the user has no way to tell the
+    difference. An auditor that did not run is not a passing auditor.
+    """
+    try:
+        script = _auditor_script()
+    except FileNotFoundError as exc:
+        print(f"audit could not run: {exc}", file=sys.stderr)
+        return 2, {}
     result = subprocess.run(
         [python or sys.executable, str(script), db],
         capture_output=True,
         text=True,
     )
     try:
-        return result.returncode, json.loads(result.stdout)
+        report = json.loads(result.stdout)
     except json.JSONDecodeError:
         print(result.stdout[-2000:], file=sys.stderr)
         print(result.stderr[-2000:], file=sys.stderr)
-        return result.returncode or 2, {}
+        return 2, {}
+    if not report:
+        print("audit produced no report; treating as a failure", file=sys.stderr)
+        return 2, {}
+    # A non-zero auditor exit must never be reported as success, whatever the
+    # report body says.
+    return (result.returncode or (0 if report.get("clean") else 2)), report
 
 
 def _cmd_audit(args: argparse.Namespace) -> int:

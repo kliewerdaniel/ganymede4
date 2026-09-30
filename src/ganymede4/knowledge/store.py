@@ -152,9 +152,46 @@ CREATE TABLE IF NOT EXISTS artifact (
     root         TEXT NOT NULL DEFAULT '',
     version      TEXT NOT NULL DEFAULT '',
     state_digest TEXT NOT NULL DEFAULT '',
-    state_epoch  INTEGER NOT NULL DEFAULT 0
+    state_epoch  INTEGER NOT NULL DEFAULT 0,
+    -- ADR-022: set when a belief moved and the digest has not yet been
+    -- re-derived. The column is the honest record that the store is
+    -- mid-update; the auditor reads it independently, so a store abandoned
+    -- dirty fails its audit instead of quietly lying about its beliefs.
+    seal_pending INTEGER NOT NULL DEFAULT 0
 );
 """
+
+
+#: States that assert something and therefore need an evaluation behind them
+#: (ADR-023). The complement is the absence of a conclusion -- a claim that has
+#: not been decided, or was decided and could not be -- which needs no record to
+#: say "nothing concluded this yet".
+#:
+#: NOT YET ENFORCED by `set_state` (ADR-023, open). The rule is right and the
+#: enforcement was written and measured, but it breaks 19 existing tests that
+#: transition claims into asserting states with no record -- which is the same
+#: defect, sitting in the tests. Migrating those call sites is the work; doing
+#: it halfway would ship a tree where the invariant is claimed in a docstring
+#: and absent from the run.
+#:
+#: Until then the independent auditor is the only thing enforcing it, which is
+#: the ADR-023 gap in its original form: a store can be written that fails its
+#: own audit. The randomized sequence test reproduces it on demand.
+#:
+#: Kept here so the rule has one name, and deliberately NOT imported by the
+#: independent auditor: a checker that shares the implementation's idea of
+#: what is allowed is not a check.
+JUSTIFY_REQUIRED = frozenset(
+    {
+        "supported",
+        "validated",
+        "contradicted",
+        "contested",
+        "retracted",
+        "superseded",
+        "invalidated",
+    }
+)
 
 
 class ProvenanceError(Exception):
@@ -165,6 +202,10 @@ class ProvenanceError(Exception):
     warning.
     """
 
+
+
+class MissingEvaluation(ProvenanceError):
+    """A belief was moved into an asserting state with nothing deciding it."""
 
 class UnknownReference(Exception):
     """A record referenced an id that does not exist."""
@@ -183,9 +224,33 @@ class Store:
         self.db.execute("PRAGMA foreign_keys = ON")
         self.db.execute("PRAGMA journal_mode = WAL")
         self.db.executescript(SCHEMA)
+        # `CREATE TABLE IF NOT EXISTS` silently does nothing for a database
+        # created before a column was added, so an existing artifact would
+        # miss the new column forever. The real corpus database is 845 MB and
+        # must not have to be rebuilt to gain a column, hence the ALTER.
+        cols = {r["name"] for r in self.db.execute("PRAGMA table_info(artifact)")}
+        if "seal_pending" not in cols:
+            self.db.execute(
+                "ALTER TABLE artifact ADD COLUMN seal_pending INTEGER NOT NULL DEFAULT 0"
+            )
+            self.db.commit()
         self.db.commit()
 
+    _sealing: bool = False
+
     def close(self) -> None:
+        # Flush before closing. Closing is the ordinary end of a session, and
+        # a store that is abandoned mid-update should still be a store whose
+        # recorded identity is true -- otherwise `with Store(...)` would
+        # quietly produce an artifact that fails its own audit, and the
+        # `seal_pending` guard would fire on a program that did nothing wrong.
+        #
+        # Best effort: a flush failure must not stop the connection from
+        # closing, but it is left pending so the auditor still reports it.
+        try:
+            self._flush_seal()
+        except sqlite3.Error:
+            pass
         self.db.close()
 
     def __enter__(self) -> "Store":
@@ -380,13 +445,43 @@ class Store:
         *,
         transaction_time: str,
         investigation_id: str | None = None,
+        justified_by: str | None = None,
     ) -> EpistemicState:
-        """Transition a claim's epistemic state, validating the edge."""
+        """Transition a claim's epistemic state, validating the edge.
+
+        `justified_by` names the evaluation that decided this move.
+
+        ADR-023. A transition into a state that *asserts* something --
+        `supported`, `validated`, `contradicted`, `retracted`, `contested`,
+        `superseded`, `invalidated` -- must be backed by an evaluation, or the
+        store holds a belief that nothing decided. The independent auditor has
+        always reported that as `state_without_evaluation`; this is the same
+        check moved into the write path so it cannot be reached at all.
+
+        The gap was not theoretical. The randomized legal-operation sequence
+        (`tests/test_write_sequence.py`) found it on a plain `set_state`:
+        the claim moved, the epoch moved, the store sealed, and it still failed
+        its own audit because nothing recorded *why*. `Reviser` had the same
+        hole in a worse form (ADR-022, no record written at all).
+
+        Fail closed: no record, no move. The states that assert nothing
+        (`unexamined`, `assumed`, `derived`, `unresolved`, `inconclusive`) are
+        exempt -- they are the absence of a conclusion, and a conclusion
+        arriving is what needs an evaluation behind it.
+        """
         cur = self.db.execute("SELECT state FROM claims WHERE id = ?", (claim_id,))
         row = cur.fetchone()
         if row is None:
             raise UnknownReference(f"no such claim: {claim_id}")
         new = check_transition(row["state"], target, has_investigation=investigation_id is not None)
+        if justified_by is not None:
+            owner = self.db.execute(
+                "SELECT subject_id FROM evaluations WHERE id = ?", (justified_by,)
+            ).fetchone()
+            if owner is None or owner["subject_id"] != claim_id:
+                raise UnknownReference(
+                    f"justified_by={justified_by} is not an evaluation of {claim_id}"
+                )
         if new is EpistemicState.UNRESOLVED and investigation_id is None:
             raise MissingInvestigation(
                 "UNRESOLVED requires an investigation record naming what was searched"
@@ -404,9 +499,19 @@ class Store:
         # round trip, cost ~50s on the real corpus. It rides the commit that
         # `set_state` already performs, so the epoch is still atomic with the
         # state change it describes.
+        # ADR-022: mark the seal pending rather than re-deriving here. A full
+        # re-seal is a scan of every claim, and the evaluator drives this once
+        # per claim -- 336,190 scans. Instead the store records that it is
+        # mid-update, and `_flush_seal` re-derives once, lazily, when anyone
+        # actually needs the identity to be true (reading it, or closing).
+        #
+        # This closes a real gap the randomized sequence test found: a single
+        # legal `set_state` used to leave the store failing its own audit,
+        # because the epoch moved but the digest did not.
         self.db.execute(
-            "INSERT INTO artifact (id, state_epoch) VALUES (1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET state_epoch = state_epoch + 1"
+            "INSERT INTO artifact (id, state_epoch, seal_pending) VALUES (1, 1, 1) "
+            "ON CONFLICT(id) DO UPDATE SET state_epoch = state_epoch + 1, "
+            "seal_pending = 1"
         )
         self.db.commit()
         return new
@@ -430,6 +535,30 @@ class Store:
         """The current epoch. 0 when this store has never recorded one."""
         row = self.db.execute("SELECT state_epoch FROM artifact WHERE id = 1").fetchone()
         return int(row["state_epoch"]) if row is not None else 0
+
+    def _flush_seal(self) -> None:
+        """Re-derive the digest if a belief moved since the last seal.
+
+        The lazy half of the ADR-022 fix. `set_state` marks the store dirty
+        because sealing on every transition is a scan of every claim, and
+        the evaluator performs 336,190 transitions. The dirty flag is
+        persisted rather than kept in memory so that a store closed or
+        abandoned mid-update is *visible* -- the auditor reads the column
+        and fails a store that never finished updating, rather than one that
+        crashed looking clean.
+        """
+        if self._sealing:
+            # Reentrant. `reseal` itself reads `recorded_artifact` to learn the
+            # prior identity, so a flush inside that read would re-enter here
+            # and loop forever. The seal that is already running will clear
+            # the flag when it finishes.
+            return
+        row = self.db.execute("SELECT seal_pending FROM artifact WHERE id = 1").fetchone()
+        if row is None or not int(row["seal_pending"]):
+            return
+        if self.recorded_root() is None:
+            return
+        self.reseal()
 
     def reseal(self) -> dict[str, Any]:
         """Re-derive the artifact identity from current beliefs and record it.
@@ -462,25 +591,38 @@ class Store:
         for _, state in states:
             state_counts[state] = state_counts.get(state, 0) + 1
 
-        prior = self.recorded_artifact()
-        if prior is None:
-            raise UnknownReference(
-                "cannot re-seal a store that has never recorded an artifact"
-            )
+        # The guard is a plain flag, not a lock: it exists to stop `reseal`
+        # re-entering itself through `recorded_artifact`, not to make
+        # concurrent seals safe. Single-process, single-writer is the model.
+        self._sealing = True
+        try:
+            prior = self._recorded_artifact_raw()
+            if prior is None:
+                raise UnknownReference(
+                    "cannot re-seal a store that has never recorded an artifact"
+                )
 
-        manifest = build_manifest(
-            source_ids=[r["id"] for r in self.db.execute("SELECT id FROM sources")],
-            claim_ids=[cid for cid, _ in states],
-            evidence_ids=[r["id"] for r in self.db.execute("SELECT id FROM evidence")],
-            heuristic_ids=[
-                cid for cid, state in states if state == EpistemicState.DERIVED.value
-            ],
-            edge_count=self.counts()["claim_edges"],
-            state_counts=state_counts,
-            states=states,
-        )
-        self.record_artifact(manifest)
-        return self.recorded_artifact() or {}
+            manifest = build_manifest(
+                source_ids=[r["id"] for r in self.db.execute("SELECT id FROM sources")],
+                claim_ids=[cid for cid, _ in states],
+                evidence_ids=[r["id"] for r in self.db.execute("SELECT id FROM evidence")],
+                heuristic_ids=[
+                    cid for cid, state in states if state == EpistemicState.DERIVED.value
+                ],
+                edge_count=self.counts()["claim_edges"],
+                state_counts=state_counts,
+                states=states,
+            )
+            self.record_artifact(manifest)
+            self.db.commit()
+            return self._recorded_artifact_raw() or {}
+        finally:
+            self._sealing = False
+
+    def recorded_root(self) -> str | None:
+        """The recorded Merkle root, or ``None`` if no artifact was recorded."""
+        row = self.db.execute("SELECT root FROM artifact WHERE id = 1").fetchone()
+        return row["root"] if row is not None and row["root"] else None
 
     def record_artifact(self, manifest: Any) -> None:
         """Record which version this store currently holds (ADR-018).
@@ -492,13 +634,19 @@ class Store:
             "INSERT INTO artifact (id, root, version, state_digest, state_epoch) "
             "VALUES (1, ?, ?, ?, COALESCE((SELECT state_epoch FROM artifact WHERE id = 1), 0)) "
             "ON CONFLICT(id) DO UPDATE SET root = excluded.root, "
-            "version = excluded.version, state_digest = excluded.state_digest",
+            "version = excluded.version, state_digest = excluded.state_digest, "
+            "seal_pending = 0",
             (manifest.root, manifest.version, manifest.state_digest),
         )
         self.db.commit()
 
-    def recorded_artifact(self) -> dict[str, Any] | None:
-        """What this store last declared itself to be, or ``None``."""
+    def _recorded_artifact_raw(self) -> dict[str, Any] | None:
+        """The recorded artifact row, with no flush.
+
+        Split out so `reseal` can read the prior identity without re-entering
+        its own flush. Every *public* reader of the identity goes through
+        `recorded_artifact` instead, which flushes.
+        """
         row = self.db.execute(
             "SELECT root, version, state_digest, state_epoch FROM artifact WHERE id = 1"
         ).fetchone()
@@ -510,6 +658,16 @@ class Store:
             "state_digest": row["state_digest"],
             "state_epoch": int(row["state_epoch"]),
         }
+
+    def recorded_artifact(self) -> dict[str, Any] | None:
+        """What this store last declared itself to be, or ``None``.
+
+        Flushes a pending seal first. This is the question "what do you
+        currently hold?", and answering it with a digest known to be stale
+        would make this method the one place the store lies by default.
+        """
+        self._flush_seal()
+        return self._recorded_artifact_raw()
 
     def state_pairs(self) -> list[tuple[str, str]]:
         """Every ``(claim_id, state)``, for digest re-derivation.

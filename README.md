@@ -33,7 +33,7 @@ no test or script reaches the network.
 ```bash
 git clone https://github.com/kliewerdaniel/ganymede4
 cd ganymede4
-python -m pytest          # 475 tests, ~19s
+python -m pytest          # 496 tests, ~20s
 ```
 
 `pip install -e .` is optional and currently only adds a broken console script
@@ -42,8 +42,39 @@ the artifact*.
 
 ## Status
 
-**Phase 18 — the store must describe the beliefs it actually holds.**
-475 tests passing on Python 3.12, stdlib-only, offline.
+**Phase 19 — read the verdicts, then prove no later write can invalidate an
+earlier invariant.**
+496 tests passing on Python 3.12, stdlib-only, offline.
+
+Phase 18 fixed one store that lied about its beliefs. Phase 19 stopped waiting
+for the next accident and hunted the *shape* instead: a seeded run of legal
+public-API mutations, with the independent auditor run as a separate process
+after every single operation (`tests/test_write_sequence.py`). It found three
+more instances of the same shape, and two of them were not stale values but
+values that had **never been written**:
+
+- `Reviser` invalidated a transitive closure of ~142,000 claims without
+  touching `state_epoch` or the state digest, so a witness bound before the
+  revision was never told it was stale (ADR-022).
+- The invalidation wrote **no decision record at all**. It had stayed invisible
+  because all 16,897 mined heuristics are permanently evidence-free — exempt by
+  *state* — so the moment revision moved one, the auditor correctly reported it
+  as an orphan. The auditor's rule was wrong: it keyed on a mutable state
+  instead of on provenance. It is now keyed on provenance, and sabotage-tested
+  in both directions.
+- A single legal `set_state` still left the store failing its own audit. The
+  store now records that it is mid-update (`seal_pending`) and refuses to
+  answer "what do you hold?" with a digest it knows is stale.
+
+On the real 336,190-claim artifact: `v1-47175b83c6232433` → `v1-30a0b947c2219726`,
+epoch 319293 → 319295, seven claims invalidated including a `derived` heuristic,
+audit clean in 7.8s, and a single planted state mutation still caught with exit 1.
+
+**One gap is open and named.** `set_state` can still move a claim into a
+state that asserts something — `supported`, `retracted`, `contradicted` — with
+no evaluation behind it. The fix was written and measured; it broke 19 existing
+tests that encode the same defect, so enforcement was removed before commit
+rather than landed half-migrated (ADR-023).
 
 The first completed full-corpus evaluation finished: **319,293 evaluations over
 336,190 claims**, 8,646 `SUPPORTED`, 596 `CONTRADICTED`, 310,051

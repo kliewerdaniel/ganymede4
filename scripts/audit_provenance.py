@@ -65,6 +65,7 @@ def audit(db_path: str) -> dict[str, Any]:
         "unresolvable_attestation": [],
         "stale_dependents": [],
         "span_mismatches": [],
+        "seal_pending": False,
     }
     cap = f"LIMIT {EXAMPLE_CAP}"
 
@@ -128,6 +129,22 @@ def audit(db_path: str) -> dict[str, Any]:
 
         # ------------------------------------------------------------------
         # 2. Orphans: a claim in a state that promises evidence, with none.
+        #
+        #    ADR-022: the exemption has to key on *provenance*, not on
+        #    *state*. `EVIDENCE_FREE_OK` exempts the `derived` state, which
+        #    works only while a derived claim stays derived. Every one of the
+        #    16,897 mined heuristics on the real corpus has zero
+        #    `claim_evidence` rows and a full set of `DERIVED_FROM` edges --
+        #    that is how a heuristic is supported (ADR-004), permanently, not
+        #    a temporary state. The moment revision invalidates one, the
+        #    state exemption stops applying and the auditor reports an
+        #    orphan for a claim whose provenance is completely intact.
+        #
+        #    So the rule is: a claim is an orphan if its state promises
+        #    evidence and it has neither direct evidence nor derivation
+        #    edges. This is strictly narrower for non-derived claims -- a
+        #    claim with no evidence and no edges is still caught, and there
+        #    are zero such claims in the real corpus.
         # ------------------------------------------------------------------
         ok_ev = ",".join("?" * len(EVIDENCE_FREE_OK))
         report["orphans"] = [
@@ -139,6 +156,10 @@ def audit(db_path: str) -> dict[str, Any]:
                 WHERE c.state NOT IN ({ok_ev})
                   AND NOT EXISTS (
                     SELECT 1 FROM claim_evidence ce WHERE ce.claim_id = c.id
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM claim_edges ge WHERE ge.from_id = c.id
+                      AND ge.relation = 'DERIVED_FROM'
                   )
                 """
                 + cap,
@@ -329,9 +350,36 @@ def _audit_state_digest(conn: sqlite3.Connection, report: dict[str, Any]) -> Non
     only that the code agrees with itself; the whole value of this check is
     that it is a second, independent derivation of the same value.
     """
+    # ADR-022: a store that began a belief change and never finished sealing
+    # is not clean -- it is a store that cannot say what it holds. Reported
+    # as a mismatch rather than a separate field so the existing verdict
+    # logic needs no new branch, and so it cannot be mistaken for "no
+    # information".
+    pending = False
+    try:
+        pcol = conn.execute("PRAGMA table_info(artifact)").fetchall()
+        if any(r["name"] == "seal_pending" for r in pcol):
+            prow = conn.execute("SELECT seal_pending FROM artifact WHERE id = 1").fetchone()
+            pending = bool(prow and int(prow["seal_pending"] or 0))
+    except sqlite3.Error:
+        pending = False
+
     row = conn.execute(
         "SELECT state_digest FROM artifact WHERE id = 1"
     ).fetchone()
+    if pending:
+        report["artifact_recorded"] = True
+        report["state_digest_recorded"] = row["state_digest"] if row else None
+        report["seal_pending"] = True
+        report["state_digest_mismatch"] = [
+            {
+                "actual": None,
+                "recorded": row["state_digest"] if row else None,
+                "detail": "the store has an unfinished seal: beliefs changed "
+                "but the state digest was never re-derived",
+            }
+        ]
+        return
     if row is None or not row["state_digest"]:
         # No artifact row, or a row that never recorded a digest, means the
         # store never declared a version. That is not a mismatch -- it is an

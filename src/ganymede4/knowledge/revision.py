@@ -92,9 +92,21 @@ class Reviser:
     sources of truth for the same relation is a way to disagree with itself.
     """
 
-    def __init__(self, store: Store, version: str) -> None:
+    def __init__(
+        self,
+        store: Store,
+        version: str,
+        *,
+        decided_at: str = "1970-01-01T00:00:00Z",
+    ) -> None:
         self._store = store
         self._version = version
+        #: When the revision decided. Recorded on every evaluation this
+        #: walk writes (ADR-022), so the decision is dated rather than
+        #: inheriting a timestamp from wherever the caller happened to
+        #: be. The default is the epoch the evaluator also uses, keeping
+        #: bulk operations deterministic unless a caller opts in.
+        self._decided_at = decided_at
         self._dependents: Mapping[str, tuple[str, ...]] | None = None
 
     # -- dependency graph -------------------------------------------------
@@ -203,12 +215,61 @@ class Reviser:
                 outcome = self._invalidate(dependent)
                 if outcome == "moved":
                     invalidated.append(dependent)
+                    # ADR-022: record *why* this claim fell, naming the claim
+                    # it fell from. ADR-006 requires an evaluation behind
+                    # every state change, and without this the independent
+                    # auditor reports the move as both an orphan and
+                    # `state_without_evaluation`.
+                    #
+                    # Found on the real corpus: all 16,897 DERIVED heuristics
+                    # have zero evaluations, which is legal only because the
+                    # auditor exempts the `derived` state. The moment
+                    # revision moves one, the exemption stops applying and
+                    # the claim is unexplained. This is the sixth occurrence
+                    # of the shape and the sharpest -- ADR-014/018/020/021
+                    # were all values that went *stale*; this one was never
+                    # *written*.
+                    self._store.add_evaluation(
+                        subject_id=dependent,
+                        relation="invalidated",
+                        method="reviser.propagate",
+                        decided_at=self._decided_at,
+                        meta={
+                            "trigger": trigger_id,
+                            "invalidated_from": current,
+                            "trigger_state": trigger_state.value,
+                        },
+                    )
                     # Only a claim this call actually moved can propagate
                     # further; an already-invalid one was handled when it
                     # first fell.
                     queue.append(dependent)
                 elif outcome == "refused":
                     refused.append(dependent)
+
+        # ADR-022: this is the fifth-occurrence shape. `Reviser` predates
+        # ADR-018 and ADR-021 and predates `set_state` as the single funnel
+        # for belief changes, so it invalidates with a raw UPDATE and was
+        # missing *both* invariants: the epoch never moved and the recorded
+        # state_digest still described the pre-revision beliefs. Verified on
+        # the real 336,190-claim artifact -- one revision left the store
+        # failing its own audit, and the witness tripwire did not fire.
+        #
+        # The re-seal goes here, at the end of the walk, rather than in each
+        # `_invalidate`. Revision can move a transitive closure of ~142,000
+        # claims, and a re-seal per claim is a full store scan each time. The
+        # invariant that matters is "the digest describes the beliefs this
+        # call left behind", and one seal at the end establishes exactly
+        # that.
+        #
+        # The epoch is bumped for the same reason and by the same argument:
+        # the tripwire's question is "did anything move", and the honest
+        # answer after N moves is one bump, not N. `set_state` bumps per
+        # transition because it is a single claim's transition; this is a
+        # bulk operation and the counter is a tripwire, not a ledger.
+        if invalidated:
+            self._store.bump_state_epoch()
+            self._store.reseal()
 
         return Revision(
             trigger_id=trigger_id,

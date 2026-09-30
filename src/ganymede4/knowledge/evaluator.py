@@ -425,7 +425,18 @@ class Evaluator:
         )
 
         if apply:
-            self._store.set_state(claim_id, state, transaction_time=transaction_time)
+            # ADR-023: the record written just above is what decided this
+            # move, so it is named. The funnel requires it for any asserting
+            # state; without this the claim would be believed with nothing
+            # behind it and the independent auditor would (correctly) refuse
+            # the artifact.
+            self._store.set_state(
+                claim_id,
+                state,
+                transaction_time=transaction_time,
+                investigation_id=investigation_id,
+                justified_by=evaluation_id,
+            )
 
         return Verdict(
             subject_id=claim_id,

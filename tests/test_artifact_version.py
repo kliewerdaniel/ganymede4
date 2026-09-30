@@ -299,14 +299,21 @@ def test_auditor_does_not_invent_a_defect_for_an_unrecorded_artifact(tmp_path):
         content="A claim about provenance that is long enough to survive.",
         source_type="test",
     )
+    # The evidence span and the claim text must be the same string. They were
+    # not: this fixture gave a 17-character span for a 51-character claim,
+    # which the compiler cannot emit (it writes `text=seg.text` against that
+    # same segment) but which the ADR-026 content check correctly rejects.
+    # The fixture, not the check, was wrong -- an auditor that reports a real
+    # inconsistency here is doing its job, so the fix belongs in the test.
+    content = "A claim about provenance that is long enough to survive."
     ev = store.add_evidence(
         source_id=store.db.execute("SELECT id FROM sources").fetchone()["id"],
         start_offset=0,
-        end_offset=17,
-        text="A claim about pro",
+        end_offset=len(content),
+        text=content,
     )
     store.add_claim(
-        text="A claim about provenance that is long enough to survive.",
+        text=content,
         evidence_ids=[ev],
         transaction_time=TT,
     )

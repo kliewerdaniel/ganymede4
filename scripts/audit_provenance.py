@@ -65,6 +65,12 @@ def audit(db_path: str) -> dict[str, Any]:
         "unresolvable_attestation": [],
         "stale_dependents": [],
         "span_mismatches": [],
+        # ADR-026: the root is computed over content-addressed claim IDs, so
+        # it verifies identity and structure but not text. Two rows could be
+        # edited behind the pipeline's back with no change to any hash:
+        # `sources.content` and `claims.text`. Both are checked here.
+        "source_checksum_mismatches": [],
+        "claim_text_mismatches": [],
         "seal_pending": False,
     }
     cap = f"LIMIT {EXAMPLE_CAP}"
@@ -109,6 +115,79 @@ def audit(db_path: str) -> dict[str, Any]:
                     {"evidence_id": ev_id, "claim_id": claim_id,
                      "expected": ev_text, "actual": actual}
                 )
+
+        # ------------------------------------------------------------------
+        # ADR-026: does any stored text still match what it claims to be?
+        #
+        # The Merkle root cannot answer this. A claim's id is a hash of its
+        # content, so editing a claim's text *without* recomputing its id
+        # leaves the id -- and the root -- untouched. That is what content
+        # addressing is; it is not a defect in the hashing. But it means the
+        # root certifies "these rows are the rows that were compiled", not
+        # "these rows say what they say they say".
+        #
+        # Measured before this check existed: editing `sources.content` or
+        # `claims.text` produced clean: true and exit 0. The project's thesis
+        # is that claims resolve to exact source offsets and that this is
+        # mechanically checkable -- so a hole in the checker of that exact
+        # property was a hole in the thesis.
+        #
+        # `sources.checksum` was already in the schema and already written at
+        # insert time. Nothing ever read it back. It is read here, with a
+        # locally defined sha256 rather than an import, because an auditor
+        # that imports the code it audits cannot find that code's bugs.
+        # ------------------------------------------------------------------
+        for src_id, checksum, content in _rows(
+            conn, "SELECT id, checksum, content FROM sources"
+        ):
+            if hashlib.sha256(content.encode("utf-8")).hexdigest() != checksum:
+                if len(report["source_checksum_mismatches"]) < EXAMPLE_CAP:
+                    report["source_checksum_mismatches"].append(
+                        {"source_id": src_id, "checksum": checksum}
+                    )
+
+        # A claim's text must be exactly the source span it cites. Segments
+        # are verbatim substrings by construction (ADR-004), so any divergence
+        # means the row was altered after compilation. Claims with no evidence
+        # are skipped: derived heuristics are mined, not extracted, and have
+        # no source span to disagree with.
+        # A claim's text must be *the concatenation of the source spans it
+        # cites*, in span order. Every claim the compiler emits has exactly
+        # one evidence row (verified: 319,293 claims, 319,293 rows, zero with
+        # more than one), so for real artifacts this is a single slice per
+        # claim. The concatenation form is used anyway rather than relying on
+        # that: a claim citing two spans should be checked against both, and a
+        # check written as `claim.text == first_span` would silently pass
+        # every multi-span claim it met.
+        spans_by_claim: dict[str, list[tuple[int, int, str]]] = {}
+        source_by_claim: dict[str, str] = {}
+        for claim_id, start, end, content in _rows(
+            conn,
+            """
+            SELECT ce.claim_id, e.start_offset, e.end_offset, s.content
+            FROM claim_evidence ce
+            JOIN evidence e ON e.id = ce.evidence_id
+            JOIN sources s ON s.id = e.source_id
+            """,
+        ):
+            spans_by_claim.setdefault(claim_id, []).append((start, end, content))
+            source_by_claim.setdefault(claim_id, content)
+
+        for claim_id, spans in spans_by_claim.items():
+            claim_text = conn.execute(
+                "SELECT text FROM claims WHERE id = ?", (claim_id,)
+            ).fetchone()
+            if claim_text is None:  # pragma: no cover - FK should prevent it
+                continue
+            content = source_by_claim[claim_id]
+            # Python slicing, not substr(): same NUL reason as the span check.
+            expected = "".join(content[s:e] for s, e, _ in sorted(spans))
+            if expected != claim_text[0]:
+                if len(report["claim_text_mismatches"]) < EXAMPLE_CAP:
+                    report["claim_text_mismatches"].append(
+                        {"claim_id": claim_id, "claim_text": claim_text[0],
+                         "source_span": expected}
+                    )
 
         # Evidence whose source is gone. Foreign keys should make this
         # impossible, which is exactly why it is worth checking: a database
@@ -334,6 +413,8 @@ def audit(db_path: str) -> dict[str, Any]:
         and not report["dangling_edges"]
         and not report["unresolved_without_investigation"]
         and not report["span_mismatches"]
+        and not report["source_checksum_mismatches"]
+        and not report["claim_text_mismatches"]
         and not report["state_without_evaluation"]
         and not report["unresolvable_attestation"]
         and not report["stale_dependents"]

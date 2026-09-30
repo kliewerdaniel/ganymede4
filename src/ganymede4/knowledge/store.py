@@ -431,6 +431,57 @@ class Store:
         row = self.db.execute("SELECT state_epoch FROM artifact WHERE id = 1").fetchone()
         return int(row["state_epoch"]) if row is not None else 0
 
+    def reseal(self) -> dict[str, Any]:
+        """Re-derive the artifact identity from current beliefs and record it.
+
+        ADR-018 put belief state *in* the artifact identity and bumped an
+        epoch on every transition. The epoch is the tripwire and it worked.
+        The digest was the other half, and it was written once by
+        ``record_artifact`` at compile time: a store that was later evaluated
+        still advertised the beliefs it had before evaluation. The auditor
+        caught this on the first completed full-corpus run and was right to
+        -- the store was describing itself as an artifact that no longer
+        existed.
+
+        Evaluation changes claims, not content. Claims, evidence, sources and
+        edges are untouched; only the identity moves, because a version that
+        cannot distinguish "these claims, believed" from "these claims,
+        contradicted" cannot identify the artifact (ADR-018).
+
+        Explicit and separate from ``set_state`` for the same reason
+        ``bump_state_epoch`` is: re-sealing is a decision about identity, and
+        a bulk writer is the right place to make it deliberately rather than
+        have it happen as a side effect of 319,293 individual transitions.
+
+        Returns the newly recorded artifact row.
+        """
+        from ..compile.manifest import build_manifest  # local: avoids a cycle
+
+        states = self.state_pairs()
+        state_counts: dict[str, int] = {}
+        for _, state in states:
+            state_counts[state] = state_counts.get(state, 0) + 1
+
+        prior = self.recorded_artifact()
+        if prior is None:
+            raise UnknownReference(
+                "cannot re-seal a store that has never recorded an artifact"
+            )
+
+        manifest = build_manifest(
+            source_ids=[r["id"] for r in self.db.execute("SELECT id FROM sources")],
+            claim_ids=[cid for cid, _ in states],
+            evidence_ids=[r["id"] for r in self.db.execute("SELECT id FROM evidence")],
+            heuristic_ids=[
+                cid for cid, state in states if state == EpistemicState.DERIVED.value
+            ],
+            edge_count=self.counts()["claim_edges"],
+            state_counts=state_counts,
+            states=states,
+        )
+        self.record_artifact(manifest)
+        return self.recorded_artifact() or {}
+
     def record_artifact(self, manifest: Any) -> None:
         """Record which version this store currently holds (ADR-018).
 

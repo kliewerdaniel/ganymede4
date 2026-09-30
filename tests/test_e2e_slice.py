@@ -151,6 +151,13 @@ def build_artifact(path: Path, extra_source: str | None = None) -> None:
         investigation_id=inv,
         transaction_time="2026-01-01T00:00:00Z",
     )
+    # ADR-021: the UNRESOLVED claim above was added *after* evaluate_all, so
+    # it is not covered by the re-seal that evaluation performs. A claim
+    # appearing is a change to the belief set, and the digest has to describe
+    # the claims that exist -- so re-seal once the fixture is finished rather
+    # than at each step, which is also the honest model of "build the
+    # artifact, then seal it".
+    store.reseal()
     store.close()
 
 

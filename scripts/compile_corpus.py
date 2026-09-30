@@ -128,7 +128,7 @@ def main() -> int:
         if not args.no_evaluate:
             print("\nevaluating (deterministic relations only):")
             evaluator = Evaluator(store, artifact.manifest)
-            evaluator.evaluate_all()
+            evaluator.evaluate_all()  # re-seals on apply (ADR-021)
             counts = dict(store.counts())
             by_state: dict[str, int] = {}
             for row in store.db.execute("SELECT state, COUNT(*) n FROM claims GROUP BY state"):
@@ -136,6 +136,8 @@ def main() -> int:
             for state, count in sorted(by_state.items(), key=lambda kv: -kv[1]):
                 print(f"  {state:16} {count:>7,}")
             print(f"  contradictions found: {len(evaluator.contradictions())}")
+            held = store.recorded_artifact() or {}
+            print(f"  now sealed as:       {held.get('version', '?')}")
 
     print("\nrun the independent auditor:")
     print(f"  {Path(__file__).parent / 'audit_provenance.py'} {db}")

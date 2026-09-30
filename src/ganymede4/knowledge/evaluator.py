@@ -441,11 +441,24 @@ class Evaluator:
     def evaluate_all(
         self, *, apply: bool = True, transaction_time: str = "1970-01-01T00:00:00Z"
     ) -> list[Verdict]:
-        """Evaluate every claim in the version, in deterministic id order."""
-        return [
+        """Evaluate every claim in the version, in deterministic id order.
+
+        ADR-021: when ``apply`` moves beliefs, the artifact is re-sealed
+        before returning. Doing it here rather than in the caller is the
+        point -- the bug this fixes was reachable by using the API perfectly
+        correctly, so a fix that relies on the caller remembering is the same
+        bug again. The store's digest must describe the beliefs it holds, and
+        the only moment that can be guaranteed is the end of the bulk write.
+
+        With ``apply=False`` nothing moved, so there is nothing to re-seal.
+        """
+        verdicts = [
             self.evaluate(cid, apply=apply, transaction_time=transaction_time)
             for cid in sorted(self._norms)
         ]
+        if apply:
+            self._store.reseal()
+        return verdicts
 
     def contradictions(self) -> list[Verdict]:
         """Every contradicted claim, without applying anything."""

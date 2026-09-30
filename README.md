@@ -33,7 +33,7 @@ no test or script reaches the network.
 ```bash
 git clone https://github.com/kliewerdaniel/ganymede4
 cd ganymede4
-python -m pytest          # 457 tests, ~18s
+python -m pytest          # 475 tests, ~19s
 ```
 
 `pip install -e .` is optional and currently only adds a broken console script
@@ -41,6 +41,123 @@ python -m pytest          # 457 tests, ~18s
 the artifact*.
 
 ## Status
+
+**Phase 18 — the store must describe the beliefs it actually holds.**
+475 tests passing on Python 3.12, stdlib-only, offline.
+
+The first completed full-corpus evaluation finished: **319,293 evaluations over
+336,190 claims**, 8,646 `SUPPORTED`, 596 `CONTRADICTED`, 310,051
+`INCONCLUSIVE`, 16,897 `DERIVED`. Then the independent auditor refused it.
+
+```json
+"clean": false,
+"state_digest_mismatch": [
+  { "detail": "a state was changed without going through the store's
+               transition path, so no new version was issued" }
+]
+```
+
+[ADR-021](docs/adr/ADR-021-reseal-after-bulk-belief-change.md): the
+`state_digest` that ADR-018 put inside the artifact identity was computed
+**once**, at compile time, and never refreshed. The store had evaluated
+319,293 claims into new beliefs and was still advertising the identity it held
+*before* evaluation.
+
+```
+recorded:  8d87e32393b85f31…
+actual:    7652e541773f4715…   ← what the auditor independently derived
+```
+
+Every other field was clean — no orphans, no dangling edges, no span
+mismatches, no unresolvable attestations. One field, and the store was
+disqualified.
+
+**The epoch was correct, which is what hid the bug.** `set_state` bumps
+`state_epoch` on every transition, and it reached exactly 319,293. The
+tripwire worked. But the epoch answers a *runtime* question ("did anything
+move since I was bound?") while the digest answers an *audit* question
+("does this recorded identity describe this table?"). A witness bound before
+evaluation was correctly refused; one bound after was correctly accepted —
+and both carried the *same version string*, because the version had not
+moved. Both statements were true, and together they lied about identity.
+
+The re-seal lives inside `Evaluator.evaluate_all`, not in the compile script,
+because **the defect was reachable by using the API perfectly correctly.**
+A correct caller had no way to know a re-seal was owed, so a fix that relies
+on the caller remembering would reimplement the bug. This is the same
+reasoning ADR-018 used when it inlined its epoch bump.
+
+After re-sealing, on the real corpus:
+
+```
+v1-7e506ea556f63374  →  v1-47175b83c6232433
+7652e541773f4715…    ← matches the auditor's independent derivation
+clean: true, exit 0
+```
+
+Different version, and that is the correct outcome rather than an
+inconvenience: the unevaluated artifact identifies 336,190 claims all
+`UNEXAMINED`, and the evaluated one identifies the same claims under
+different beliefs. They *are* different artifacts.
+
+**A re-seal must not become a way to silence the auditor.** Recompute-and-
+overwrite would also launder a store edited behind the API's back, so the
+auditor stays independent and the negative direction is pinned. Verified on
+the real corpus by planting one `CONTRADICTED → SUPPORTED` change directly in
+SQL: `clean: false`, exit 1.
+
+Fourth recurrence of one shape, after `substr()` stopping at NUL (ADR-014),
+the digest ignoring state (ADR-018), and `frozenset() == frozenset()` making
+two unrecognisable claims "identical" (ADR-020). Each was a check that was
+correct when written and wrong after a later write, because nothing re-ran
+it. The generalisation is not "add more checks" — every one of these checks
+was present and correct. It is that **an invariant which a later write can
+invalidate must be re-established by that write, in the same funnel, or it is
+decoration.**
+
+## Earlier status
+
+**Phase 17 — two claims that share nothing are not a contradiction.**
+467 tests passing on Python 3.12, stdlib-only, offline.
+
+Reading the verdicts of the run above surfaced a second evaluator defect,
+narrower to fix and more dangerous in kind, because `CONTRADICTED` is
+absorbing:
+
+```
+'Я - гангстер, я - настоящий босс, ...'
+    contradicted by
+'But that's not what this was.'
+```
+
+Contradiction required a term-set match plus a polarity flip. An empty term
+set is a *valid* term set and `frozenset() == frozenset()` is `True`, so two
+claims that normalize to nothing were "the same proposition, opposite
+meaning." Two causes: `_TOKEN_RE` is `[a-z0-9]+`, so **186 of 221 Cyrillic
+claims** produce no terms at all; and `is_proposition()` accepts a
+33-character sentence of pure English function words. 193 empty-set claims at
+one polarity, 1 at the other — that one sentence was marked `CONTRADICTED` by
+all 193.
+
+[ADR-020](docs/adr/ADR-020-empty-sets-do-not-contradict.md) guards both sides:
+contradiction requires a *shared* term set. The tokenizer is deliberately
+**not** fixed — the stemmer is English-only, and applying it to Cyrillic would
+manufacture worse errors than admitting ignorance. Non-Latin claims stay
+correctly stored and correctly marked not-evaluable by this method.
+
+**Not fixed, and recorded rather than guessed:**
+[docs/open-questions/code-contradictions.md](docs/open-questions/code-contradictions.md)
+holds the measurement. After ADR-020, ~75% of remaining contradictions are
+not semantic contradictions — two versions of one function, or a URL plus a
+stray "No". But the prose class also contains the component working exactly as
+designed: the evaluator independently found that the corpus argues both *"It
+is also a pyramid scheme"* and *"THIS IS NOT A PYRAMID SCHEME!"*. Any filter
+written now would be a threshold fitted to a corpus that is 44% ChatGPT
+output pasted from a coding assistant — the failure `MIN_CLAIM_CHARS`' own
+comment warns against. Settling it needs a hand-labelled sample and a decision
+on whether the compiler should emit code as claims at all.
+
+## Earlier status
 
 **Phase 16 — a duplicate is not a witness to itself.**
 457 tests passing on Python 3.12, stdlib-only, offline.

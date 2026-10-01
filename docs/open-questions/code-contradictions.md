@@ -1,9 +1,17 @@
 # Open: what is a contradiction in a corpus that contains source code?
 
-**Status:** Open — measurement done, instrument shipped, awaiting labels
-**See also:** ADR-027 (PROPOSED), `docs/labelling/CONTRADICTIONS.md`
-**Date:** 2026-09-29
+**Status:** Answered as far as this corpus permits — see ADR-030, ADR-031
+**See also:** ADR-030, ADR-031, ADR-027 (PROPOSED), `docs/labelling/CONTRADICTIONS.md`
+**Date:** 2026-09-29 (closed 2026-10-01)
 **Related:** ADR-006, ADR-012, ADR-020
+
+> **Closed 2026-10-01.** The 70 distinct pairs are labelled
+> (`docs/labelling/agent-labels.json`): 87.7% of contradiction pair rows are
+> code fragments. ADR-030 selected `no-code`. ADR-031 then built the
+> structural detector and found no setting that is both broad and safe, so the
+> policy is **not** implemented. What remains open is narrower and is stated
+> at the end of this file. The historical measurement below is preserved as
+> recorded.
 
 ## The question
 
@@ -129,3 +137,19 @@ live in the current artifact, which is the honest position: the evaluator
 reports what its specification tells it to report, the specification has a
 gap, and the gap is now written down instead of discovered later by someone
 who assumes the numbers mean something they do not.
+
+## What is still open (2026-10-01)
+
+The question is answered for this corpus and the answer is unsatisfying:
+**the information needed to separate code from prose is not in the
+artifact.** There are zero fenced code blocks and prose-only URIs, so neither
+Markdown structure nor filename helps. A real contradiction (`has` versus
+`does NOT have`) lives inside a string literal in an indented block, and
+indentation cannot distinguish them.
+
+Closing this properly needs a parser, or per-source-language metadata
+recorded at compile time. Not a threshold — ADR-031 measured the frontier and
+there is no safe point on it.
+
+The 14 labelled real contradiction pairs are agent-labelled rather than
+human-labelled, and a human re-read of those 14 is still worth having.

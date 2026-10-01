@@ -1,0 +1,566 @@
+{
+ "pairs": [
+  {
+   "pair": "error(f\"JSON decoding failed: {e}\") return '' except Exception as e: logger.|error(f\"JSON decoding failed: {e}\") return None except Exception as e: logger.",
+   "a": "error(f\"JSON decoding failed: {e}\") return '' except Exception as e: logger.",
+   "b": "error(f\"JSON decoding failed: {e}\") return None except Exception as e: logger.",
+   "label": "code_fragment",
+   "rationale": "two revisions of one error handler; '' vs None is a draft difference, not a proposition"
+  },
+  {
+   "pair": "error(f\"HTTP Request failed: {e}\") return '' except json.|error(f\"HTTP Request failed: {e}\") return None except json.",
+   "a": "error(f\"HTTP Request failed: {e}\") return '' except json.",
+   "b": "error(f\"HTTP Request failed: {e}\") return None except json.",
+   "label": "code_fragment",
+   "rationale": "same handler, different sentinel"
+  },
+  {
+   "pair": "; return; } if (!|Returns: None \"\"\"",
+   "a": "; return; } if (!",
+   "b": "Returns: None \"\"\"",
+   "label": "code_fragment",
+   "rationale": "unrelated code windows; lexical overlap only"
+  },
+  {
+   "pair": "\"\"\" try: if not os.|\"\"\" try: if os.",
+   "a": "\"\"\" try: if not os.",
+   "b": "\"\"\" try: if os.",
+   "label": "code_fragment",
+   "rationale": "one guard added in a later revision"
+  },
+  {
+   "pair": "username}' does NOT have an Author profile.\")|username}' has an Author profile.\")",
+   "a": "username}' does NOT have an Author profile.\")",
+   "b": "username}' has an Author profile.\")",
+   "label": "real_contradiction",
+   "rationale": "opposing propositions about the same subject; embedded in a program message, but the polarity is real"
+  },
+  {
+   "pair": ", ) ) return None|; return; } if (!",
+   "a": ", ) ) return None",
+   "b": "; return; } if (!",
+   "label": "code_fragment",
+   "rationale": "unrelated code windows; lexical overlap is only 'return' and 'None'"
+  },
+  {
+   "pair": "return None return analyzed_data except requests.|return analyzed_data except requests.",
+   "a": "return None return analyzed_data except requests.",
+   "b": "return analyzed_data except requests.",
+   "label": "subset",
+   "rationale": "peer is contained in subject, verbatim"
+  },
+  {
+   "pair": "new(limit=None): if comment.|new(limit=limit): comments.",
+   "a": "new(limit=None): if comment.",
+   "b": "new(limit=limit): comments.",
+   "label": "code_fragment",
+   "rationale": "default argument changed between drafts"
+  },
+  {
+   "pair": "text) return None|text}\") return ''",
+   "a": "text) return None",
+   "b": "text}\") return ''",
+   "label": "code_fragment",
+   "rationale": "two forms of a return sentinel"
+  },
+  {
+   "pair": "; return this.|Returns: None \"\"\"",
+   "a": "; return this.",
+   "b": "Returns: None \"\"\"",
+   "label": "code_fragment",
+   "rationale": "unrelated windows -- no opposing proposition is asserted by either window"
+  },
+  {
+   "pair": "Specify whether to apply data augmentation techniques during training with the command \"data_augmentation\".|data_augmentation: This command specifies whether or not to apply data augmentation techniques during training.",
+   "a": "Specify whether to apply data augmentation techniques during training with the command \"data_augmentation\".",
+   "b": "data_augmentation: This command specifies whether or not to apply data augmentation techniques during training.",
+   "label": "other",
+   "rationale": "argparse help and its rendered form; one proposition stated twice"
+  },
+  {
+   "pair": "Specify whether to perform fine-tuning during training with the command \"fine_tuning\".|fine_tuning: This command specifies whether or not to perform fine-tuning during training.",
+   "a": "Specify whether to perform fine-tuning during training with the command \"fine_tuning\".",
+   "b": "fine_tuning: This command specifies whether or not to perform fine-tuning during training.",
+   "label": "other",
+   "rationale": "same help/rendering duplication"
+  },
+  {
+   "pair": "Specify whether to use transfer learning during training with the command \"transfer_learning\".|transfer_learning: This command specifies whether or not to use transfer learning during training.",
+   "a": "Specify whether to use transfer learning during training with the command \"transfer_learning\".",
+   "b": "transfer_learning: This command specifies whether or not to use transfer learning during training.",
+   "label": "other",
+   "rationale": "same help/rendering duplication"
+  },
+  {
+   "pair": "response}\") if not response.|then(response => response.",
+   "a": "response}\") if not response.",
+   "b": "then(response => response.",
+   "label": "code_fragment",
+   "rationale": "unrelated windows -- no opposing proposition is asserted by either window"
+  },
+  {
+   "pair": "models import Author user = User.|models import Author users_without_author = User.",
+   "a": "models import Author user = User.",
+   "b": "models import Author users_without_author = User.",
+   "label": "code_fragment",
+   "rationale": "query variable renamed across drafts"
+  },
+  {
+   "pair": "new(limit=None): if comment.|new(limit=limit)] comments = [comment.",
+   "a": "new(limit=None): if comment.",
+   "b": "new(limit=limit)] comments = [comment.",
+   "label": "code_fragment",
+   "rationale": "same edit, different truncation point"
+  },
+  {
+   "pair": "strip() if choice.|strip() if not choice.",
+   "a": "strip() if choice.",
+   "b": "strip() if not choice.",
+   "label": "code_fragment",
+   "rationale": "negation added in a revision"
+  },
+  {
+   "pair": "Specify whether to save a checkpoint of the model during training with the command \"save_checkpoint\".|save_checkpoint: This command specifies whether or not to save a checkpoint of the model during training.",
+   "a": "Specify whether to save a checkpoint of the model during training with the command \"save_checkpoint\".",
+   "b": "save_checkpoint: This command specifies whether or not to save a checkpoint of the model during training.",
+   "label": "other",
+   "rationale": "same help/rendering duplication"
+  },
+  {
+   "pair": "embedding_function = None|embedding_function = embedding_functions.",
+   "a": "embedding_function = None",
+   "b": "embedding_function = embedding_functions.",
+   "label": "code_fragment",
+   "rationale": "assignment changed between drafts"
+  },
+  {
+   "pair": "11/site-packages/rest_framework/locale/be/LC_MESSAGES/django.|11/site-packages/rest_framework/locale/no/LC_MESSAGES/django.",
+   "a": "11/site-packages/rest_framework/locale/be/LC_MESSAGES/django.",
+   "b": "11/site-packages/rest_framework/locale/no/LC_MESSAGES/django.",
+   "label": "other",
+   "rationale": "two locale file paths; no proposition"
+  },
+  {
+   "pair": "11/site-packages/rest_framework/locale/it/LC_MESSAGES/django.|11/site-packages/rest_framework/locale/no/LC_MESSAGES/django.",
+   "a": "11/site-packages/rest_framework/locale/it/LC_MESSAGES/django.",
+   "b": "11/site-packages/rest_framework/locale/no/LC_MESSAGES/django.",
+   "label": "other",
+   "rationale": "two locale file paths; no proposition"
+  },
+  {
+   "pair": "py migrate Operations to perform: Apply all migrations: admin, auth, contenttypes, core, sessions Running migrations: Applying core.|py migrate Operations to perform: Apply all migrations: admin, auth, contenttypes, core, sessions Running migrations: No migrations to apply.",
+   "a": "py migrate Operations to perform: Apply all migrations: admin, auth, contenttypes, core, sessions Running migrations: Applying core.",
+   "b": "py migrate Operations to perform: Apply all migrations: admin, auth, contenttypes, core, sessions Running migrations: No migrations to apply.",
+   "label": "other",
+   "rationale": "two runs of the same command at different times; both true, neither a claim about the world"
+  },
+  {
+   "pair": "return None return analyzed_data except (requests.|return analyzed_data except requests.",
+   "a": "return None return analyzed_data except (requests.",
+   "b": "return analyzed_data except requests.",
+   "label": "subset",
+   "rationale": "subject contains peer plus an extra guard fragment"
+  },
+  {
+   "pair": ": timestamp = datetime.|if timestamp is None: timestamp = datetime.",
+   "a": ": timestamp = datetime.",
+   "b": "if timestamp is None: timestamp = datetime.",
+   "label": "subset",
+   "rationale": "subject is a subset of peer; guard adds context"
+  },
+  {
+   "pair": "None Source code in pydantic_ai_slim/pydantic_ai/agent.|Source code in pydantic_ai_slim/pydantic_ai/agent.",
+   "a": "None Source code in pydantic_ai_slim/pydantic_ai/agent.",
+   "b": "Source code in pydantic_ai_slim/pydantic_ai/agent.",
+   "label": "subset",
+   "rationale": "leading 'None' in subject; no opposing content"
+  },
+  {
+   "pair": "0-cp313-cp313-macosx_11_0_arm64.|0-cp313-none-macosx_11_0_arm64.",
+   "a": "0-cp313-cp313-macosx_11_0_arm64.",
+   "b": "0-cp313-none-macosx_11_0_arm64.",
+   "label": "other",
+   "rationale": "two wheel filenames; no proposition"
+  },
+  {
+   "pair": "_forward(x, mask) def _forward(self, x, mask):|def forward(self, x, mask=None): if self.",
+   "a": "_forward(x, mask) def _forward(self, x, mask):",
+   "b": "def forward(self, x, mask=None): if self.",
+   "label": "code_fragment",
+   "rationale": "method renamed and signature changed"
+  },
+  {
+   "pair": "I am an idiot and this is a dumb statement.|I am not an idiot and this is not a dumb statement.",
+   "a": "I am an idiot and this is a dumb statement.",
+   "b": "I am not an idiot and this is not a dumb statement.",
+   "label": "real_contradiction",
+   "rationale": "exact polarity inversion"
+  },
+  {
+   "pair": "text}\") return None def save_blog_post(blog_post, title): posts_dir = os.|text}\") return {} def save_blog_post(blog_post, title): posts_dir = os.",
+   "a": "text}\") return None def save_blog_post(blog_post, title): posts_dir = os.",
+   "b": "text}\") return {} def save_blog_post(blog_post, title): posts_dir = os.",
+   "label": "code_fragment",
+   "rationale": "return sentinel changed"
+  },
+  {
+   "pair": "get(\"response\", \"No response\")} except requests.|get('response', '{}')) except (requests.",
+   "a": "get(\"response\", \"No response\")} except requests.",
+   "b": "get('response', '{}')) except (requests.",
+   "label": "code_fragment",
+   "rationale": "fallback value and quoting changed"
+  },
+  {
+   "pair": "\"\"\" response = openai.|response) from None openai.",
+   "a": "\"\"\" response = openai.",
+   "b": "response) from None openai.",
+   "label": "code_fragment",
+   "rationale": "unrelated windows -- no opposing proposition is asserted by either window"
+  },
+  {
+   "pair": "execute(sql, params or None) File \"/Users/daniel/PersonaGen07/venv/lib/python3.|execute(sql, params) File \"/Users/daniel/PersonaGen07/venv/lib/python3.",
+   "a": "execute(sql, params or None) File \"/Users/daniel/PersonaGen07/venv/lib/python3.",
+   "b": "execute(sql, params) File \"/Users/daniel/PersonaGen07/venv/lib/python3.",
+   "label": "code_fragment",
+   "rationale": "traceback text differing in the parameter line"
+  },
+  {
+   "pair": "execute(sql, params or None) File \"/Users/daniel/PersonaGen07/venv/lib/python3.|execute(sql, params) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File \"/Users/daniel/PersonaGen07/venv/lib/python3.",
+   "a": "execute(sql, params or None) File \"/Users/daniel/PersonaGen07/venv/lib/python3.",
+   "b": "execute(sql, params) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File \"/Users/daniel/PersonaGen07/venv/lib/python3.",
+   "label": "code_fragment",
+   "rationale": "traceback with a caret line added"
+  },
+  {
+   "pair": "That is not why you do that.|That is what you have to do.",
+   "a": "That is not why you do that.",
+   "b": "That is what you have to do.",
+   "label": "real_contradiction",
+   "rationale": "purpose and obligation are different claims; opposition is arguable but the two do not cohere"
+  },
+  {
+   "pair": "TypeError: string indices must be integers|TypeError: string indices must be integers, not 'str'",
+   "a": "TypeError: string indices must be integers",
+   "b": "TypeError: string indices must be integers, not 'str'",
+   "label": "code_fragment",
+   "rationale": "same error, later version more specific"
+  },
+  {
+   "pair": "persona_file) if not persona_agent.|persona_file) if persona_agent.",
+   "a": "persona_file) if not persona_agent.",
+   "b": "persona_file) if persona_agent.",
+   "label": "code_fragment",
+   "rationale": "negation added in a revision"
+  },
+  {
+   "pair": "execute(sql, params or None) File \"/Users/daniel/PersonaGen07/venv/lib/python3.|execute(sql, params) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File \"/Users/daniel/PersonaGen07/venv/lib/python3.",
+   "a": "execute(sql, params or None) File \"/Users/daniel/PersonaGen07/venv/lib/python3.",
+   "b": "execute(sql, params) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File \"/Users/daniel/PersonaGen07/venv/lib/python3.",
+   "label": "code_fragment",
+   "rationale": "traceback with a longer caret run"
+  },
+  {
+   "pair": "\\\"\\\"\\\"\\n doc_id = self.|\\\"\\\"\\\"\\n if doc_id not in self.",
+   "a": "\\\"\\\"\\\"\\n doc_id = self.",
+   "b": "\\\"\\\"\\\"\\n if doc_id not in self.",
+   "label": "code_fragment",
+   "rationale": "guard added in a revision"
+  },
+  {
+   "pair": ", ' )', '', ' return self.|return [] if not self.",
+   "a": ", ' )', '', ' return self.",
+   "b": "return [] if not self.",
+   "label": "code_fragment",
+   "rationale": "unrelated windows -- no opposing proposition is asserted by either window"
+  },
+  {
+   "pair": "It is also a pyramid scheme.|THIS IS NOT A PYRAMID SCHEME!",
+   "a": "It is also a pyramid scheme.",
+   "b": "THIS IS NOT A PYRAMID SCHEME!",
+   "label": "real_contradiction",
+   "rationale": "opposing propositions"
+  },
+  {
+   "pair": "And that’s why I’m here today.|no just about what I did today",
+   "a": "And that’s why I’m here today.",
+   "b": "no just about what I did today",
+   "label": "real_contradiction",
+   "rationale": "stated purpose vs a correction of it"
+  },
+  {
+   "pair": "That was what I did not want.|What I *do* want to do is this",
+   "a": "That was what I did not want.",
+   "b": "What I *do* want to do is this",
+   "label": "real_contradiction",
+   "rationale": "negated want vs stated want"
+  },
+  {
+   "pair": "It is not one or the other.|Then there’s the other one.",
+   "a": "It is not one or the other.",
+   "b": "Then there’s the other one.",
+   "label": "real_contradiction",
+   "rationale": "denies a pair, asserts a second element"
+  },
+  {
+   "pair": ", ) ) return None|; return this.",
+   "a": ", ) ) return None",
+   "b": "; return this.",
+   "label": "code_fragment",
+   "rationale": "unrelated code windows; lexical overlap only"
+  },
+  {
+   "pair": "A -> B -> C -+ ^-+|None <- A <-> B <-> C -> None",
+   "a": "A -> B -> C -+ ^-+",
+   "b": "None <- A <-> B <-> C -> None",
+   "label": "code_fragment",
+   "rationale": "ASCII diagram redrawn"
+  },
+  {
+   "pair": "error(f\"Error generating content: {e}\") return '', ''|error(f\"Error generating content: {e}\") return None",
+   "a": "error(f\"Error generating content: {e}\") return '', ''",
+   "b": "error(f\"Error generating content: {e}\") return None",
+   "label": "code_fragment",
+   "rationale": "arity and sentinel changed"
+  },
+  {
+   "pair": "error(f\"Request Exception: {e}\") return '' except json.|error(f\"Request Exception: {e}\") return None except json.",
+   "a": "error(f\"Request Exception: {e}\") return '' except json.",
+   "b": "error(f\"Request Exception: {e}\") return None except json.",
+   "label": "code_fragment",
+   "rationale": "sentinel changed -- no opposing proposition is asserted by either window"
+  },
+  {
+   "pair": "get(\"response\", \"No response\")} except requests.|get('response', '') except requests.",
+   "a": "get(\"response\", \"No response\")} except requests.",
+   "b": "get('response', '') except requests.",
+   "label": "code_fragment",
+   "rationale": "fallback string changed"
+  },
+  {
+   "pair": "persona == persona: return None|return {\"persona\": persona}",
+   "a": "persona == persona: return None",
+   "b": "return {\"persona\": persona}",
+   "label": "code_fragment",
+   "rationale": "early-return replaced by a dict return"
+  },
+  {
+   "pair": "text}\") # Log the response content return '' except requests.|text}\") # Log the response content return None except requests.",
+   "a": "text}\") # Log the response content return '' except requests.",
+   "b": "text}\") # Log the response content return None except requests.",
+   "label": "code_fragment",
+   "rationale": "sentinel changed -- no opposing proposition is asserted by either window"
+  },
+  {
+   "pair": "''' response = openai.|response) from None openai.",
+   "a": "''' response = openai.",
+   "b": "response) from None openai.",
+   "label": "code_fragment",
+   "rationale": "unrelated windows -- no opposing proposition is asserted by either window"
+  },
+  {
+   "pair": "error(f\"JSON decoding failed: {e}\") return '' except Exception as e: logging.|error(f\"JSON decoding failed: {e}\") return None except Exception as e: logging.",
+   "a": "error(f\"JSON decoding failed: {e}\") return '' except Exception as e: logging.",
+   "b": "error(f\"JSON decoding failed: {e}\") return None except Exception as e: logging.",
+   "label": "code_fragment",
+   "rationale": "sentinel and logger changed"
+  },
+  {
+   "pair": "_agents = agents self.|agent\") if not self.",
+   "a": "_agents = agents self.",
+   "b": "agent\") if not self.",
+   "label": "code_fragment",
+   "rationale": "unrelated windows -- no opposing proposition is asserted by either window"
+  },
+  {
+   "pair": "agent\") if not self.|agents = agents self.",
+   "a": "agent\") if not self.",
+   "b": "agents = agents self.",
+   "label": "code_fragment",
+   "rationale": "unrelated windows -- no opposing proposition is asserted by either window"
+  },
+  {
+   "pair": "response}\") if not response.|then((response) => response.",
+   "a": "response}\") if not response.",
+   "b": "then((response) => response.",
+   "label": "code_fragment",
+   "rationale": "arrow-function parenthesisation changed"
+  },
+  {
+   "pair": "Deploying to Netlify (Optional)|\\*\\* No, deploying to Netlify is optional.",
+   "a": "Deploying to Netlify (Optional)",
+   "b": "\\*\\* No, deploying to Netlify is optional.",
+   "label": "subset",
+   "rationale": "same content, one reformatted; the 'No,' rephrases rather than negates"
+  },
+  {
+   "pair": "com/blog/2026-02-15-building-this-blog|com/blog/2026-02-15-building-this-blog No.",
+   "a": "com/blog/2026-02-15-building-this-blog",
+   "b": "com/blog/2026-02-15-building-this-blog No.",
+   "label": "subset",
+   "rationale": "subject is a prefix of peer; the 'No.' answers an unstated question"
+  },
+  {
+   "pair": "com/blog/2026-02-15-building-this-blog No.|com/blog/2026-02-15-building-this-blog).",
+   "a": "com/blog/2026-02-15-building-this-blog No.",
+   "b": "com/blog/2026-02-15-building-this-blog).",
+   "label": "subset",
+   "rationale": "truncation difference only"
+  },
+  {
+   "pair": "response` returned from the `ollama.|return None return ollama_response.",
+   "a": "response` returned from the `ollama.",
+   "b": "return None return ollama_response.",
+   "label": "subset",
+   "rationale": "overlapping tokens, no containment of an opposing proposition"
+  },
+  {
+   "pair": "OpenAI and Anthropic you can not run locally.|can you run openai or anthropic locally",
+   "a": "OpenAI and Anthropic you can not run locally.",
+   "b": "can you run openai or anthropic locally",
+   "label": "real_contradiction",
+   "rationale": "opposing answers to the same question"
+  },
+  {
+   "pair": "- Do not Include bullet points or numbered lists where appropriate for readability.|- Include bullet points or numbered lists where appropriate for readability.",
+   "a": "- Do not Include bullet points or numbered lists where appropriate for readability.",
+   "b": "- Include bullet points or numbered lists where appropriate for readability.",
+   "label": "real_contradiction",
+   "rationale": "directive and its negation; could both be true at different times"
+  },
+  {
+   "pair": ", \"That’s your fault.\"|That is *not your fault*.",
+   "a": ", \"That’s your fault.\"",
+   "b": "That is *not your fault*.",
+   "label": "real_contradiction",
+   "rationale": "fault and denial of fault"
+  },
+  {
+   "pair": "At that point, what’s the point.|But that is not the point.",
+   "a": "At that point, what’s the point.",
+   "b": "But that is not the point.",
+   "label": "real_contradiction",
+   "rationale": "denial of the same point"
+  },
+  {
+   "pair": "That you have to debate with.|” You do not debate this.",
+   "a": "That you have to debate with.",
+   "b": "” You do not debate this.",
+   "label": "real_contradiction",
+   "rationale": "requires debate vs forbids it"
+  },
+  {
+   "pair": "But there’s been a pattern.|The **patterns were not**.",
+   "a": "But there’s been a pattern.",
+   "b": "The **patterns were not**.",
+   "label": "real_contradiction",
+   "rationale": "asserts a pattern, denies patterns"
+  },
+  {
+   "pair": "=== CLIne Prompt =========================================================|This is **not** the CLIne prompt.",
+   "a": "=== CLIne Prompt =========================================================",
+   "b": "This is **not** the CLIne prompt.",
+   "label": "real_contradiction",
+   "rationale": "code banner vs explicit denial that it is the prompt"
+  },
+  {
+   "pair": "**Куплет I** Я да — та, Я да — та.|But that is not who I am.",
+   "a": "**Куплет I** Я да — та, Я да — та.",
+   "b": "But that is not who I am.",
+   "label": "other",
+   "rationale": "a Russian song lyric paired with an English line; no shared proposition, no opposition"
+  },
+  {
+   "pair": "But I started from nothing.|So that’s where I’m starting.",
+   "a": "But I started from nothing.",
+   "b": "So that’s where I’m starting.",
+   "label": "other",
+   "rationale": "sequential statements, not opposing"
+  },
+  {
+   "pair": "So no, I don’t trust people.|That’s why I don’t trust people.",
+   "a": "So no, I don’t trust people.",
+   "b": "That’s why I don’t trust people.",
+   "label": "other",
+   "rationale": "same content, different connective"
+  },
+  {
+   "pair": "No “what is all this for.|That is what it is all about.",
+   "a": "No “what is all this for.",
+   "b": "That is what it is all about.",
+   "label": "other",
+   "rationale": "truncated and rephrased; opposition not established"
+  }
+ ],
+ "multiplicity": {
+  "error(f\"JSON decoding failed: {e}\") return '' except Exception as e: logger.|error(f\"JSON decoding failed: {e}\") return None except Exception as e: logger.": 1026,
+  "models import Author user = User.|models import Author users_without_author = User.": 20,
+  "text}\") return None def save_blog_post(blog_post, title): posts_dir = os.|text}\") return {} def save_blog_post(blog_post, title): posts_dir = os.": 6,
+  "return None return analyzed_data except requests.|return analyzed_data except requests.": 42,
+  "com/blog/2026-02-15-building-this-blog|com/blog/2026-02-15-building-this-blog No.": 2,
+  "TypeError: string indices must be integers|TypeError: string indices must be integers, not 'str'": 4,
+  "OpenAI and Anthropic you can not run locally.|can you run openai or anthropic locally": 2,
+  "persona_file) if not persona_agent.|persona_file) if persona_agent.": 4,
+  "_agents = agents self.|agent\") if not self.": 2,
+  "It is also a pyramid scheme.|THIS IS NOT A PYRAMID SCHEME!": 4,
+  "None Source code in pydantic_ai_slim/pydantic_ai/agent.|Source code in pydantic_ai_slim/pydantic_ai/agent.": 12,
+  "- Do not Include bullet points or numbered lists where appropriate for readability.|- Include bullet points or numbered lists where appropriate for readability.": 2,
+  "But I started from nothing.|So that’s where I’m starting.": 2,
+  "; return; } if (!|Returns: None \"\"\"": 264,
+  ", ) ) return None|; return; } if (!": 44,
+  "response}\") if not response.|then(response => response.": 22,
+  "username}' does NOT have an Author profile.\")|username}' has an Author profile.\")": 50,
+  "embedding_function = None|embedding_function = embedding_functions.": 18,
+  "response}\") if not response.|then((response) => response.": 2,
+  "text) return None|text}\") return ''": 24,
+  "Specify whether to save a checkpoint of the model during training with the command \"save_checkpoint\".|save_checkpoint: This command specifies whether or not to save a checkpoint of the model during training.": 20,
+  "Deploying to Netlify (Optional)|\\*\\* No, deploying to Netlify is optional.": 2,
+  "11/site-packages/rest_framework/locale/be/LC_MESSAGES/django.|11/site-packages/rest_framework/locale/no/LC_MESSAGES/django.": 18,
+  "11/site-packages/rest_framework/locale/it/LC_MESSAGES/django.|11/site-packages/rest_framework/locale/no/LC_MESSAGES/django.": 18,
+  "Specify whether to apply data augmentation techniques during training with the command \"data_augmentation\".|data_augmentation: This command specifies whether or not to apply data augmentation techniques during training.": 24,
+  "execute(sql, params or None) File \"/Users/daniel/PersonaGen07/venv/lib/python3.|execute(sql, params) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File \"/Users/daniel/PersonaGen07/venv/lib/python3.": 4,
+  "0-cp313-cp313-macosx_11_0_arm64.|0-cp313-none-macosx_11_0_arm64.": 12,
+  "error(f\"HTTP Request failed: {e}\") return '' except json.|error(f\"HTTP Request failed: {e}\") return None except json.": 798,
+  "A -> B -> C -+ ^-+|None <- A <-> B <-> C -> None": 2,
+  "**Куплет I** Я да — та, Я да — та.|But that is not who I am.": 2,
+  "return None return analyzed_data except (requests.|return analyzed_data except requests.": 16,
+  "But there’s been a pattern.|The **patterns were not**.": 2,
+  "new(limit=None): if comment.|new(limit=limit): comments.": 30,
+  "\"\"\" try: if not os.|\"\"\" try: if os.": 110,
+  "error(f\"Error generating content: {e}\") return '', ''|error(f\"Error generating content: {e}\") return None": 2,
+  "_forward(x, mask) def _forward(self, x, mask):|def forward(self, x, mask=None): if self.": 8,
+  "get(\"response\", \"No response\")} except requests.|get('response', '{}')) except (requests.": 6,
+  "new(limit=None): if comment.|new(limit=limit)] comments = [comment.": 20,
+  "error(f\"Request Exception: {e}\") return '' except json.|error(f\"Request Exception: {e}\") return None except json.": 2,
+  "get(\"response\", \"No response\")} except requests.|get('response', '') except requests.": 2,
+  "\\\"\\\"\\\"\\n doc_id = self.|\\\"\\\"\\\"\\n if doc_id not in self.": 4,
+  "Specify whether to perform fine-tuning during training with the command \"fine_tuning\".|fine_tuning: This command specifies whether or not to perform fine-tuning during training.": 24,
+  "Specify whether to use transfer learning during training with the command \"transfer_learning\".|transfer_learning: This command specifies whether or not to use transfer learning during training.": 24,
+  "That is not why you do that.|That is what you have to do.": 6,
+  "At that point, what’s the point.|But that is not the point.": 2,
+  "strip() if choice.|strip() if not choice.": 20,
+  "I am an idiot and this is a dumb statement.|I am not an idiot and this is not a dumb statement.": 8,
+  "py migrate Operations to perform: Apply all migrations: admin, auth, contenttypes, core, sessions Running migrations: Applying core.|py migrate Operations to perform: Apply all migrations: admin, auth, contenttypes, core, sessions Running migrations: No migrations to apply.": 16,
+  "; return this.|Returns: None \"\"\"": 24,
+  "So no, I don’t trust people.|That’s why I don’t trust people.": 2,
+  "\"\"\" response = openai.|response) from None openai.": 6,
+  ": timestamp = datetime.|if timestamp is None: timestamp = datetime.": 14,
+  ", ' )', '', ' return self.|return [] if not self.": 4,
+  "persona == persona: return None|return {\"persona\": persona}": 2,
+  "text}\") # Log the response content return '' except requests.|text}\") # Log the response content return None except requests.": 2,
+  "execute(sql, params or None) File \"/Users/daniel/PersonaGen07/venv/lib/python3.|execute(sql, params) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File \"/Users/daniel/PersonaGen07/venv/lib/python3.": 6,
+  "And that’s why I’m here today.|no just about what I did today": 4,
+  "''' response = openai.|response) from None openai.": 2,
+  "No “what is all this for.|That is what it is all about.": 2,
+  "execute(sql, params or None) File \"/Users/daniel/PersonaGen07/venv/lib/python3.|execute(sql, params) File \"/Users/daniel/PersonaGen07/venv/lib/python3.": 6,
+  "That was what I did not want.|What I *do* want to do is this": 4,
+  ", \"That’s your fault.\"|That is *not your fault*.": 2,
+  "error(f\"JSON decoding failed: {e}\") return '' except Exception as e: logging.|error(f\"JSON decoding failed: {e}\") return None except Exception as e: logging.": 2,
+  ", ) ) return None|; return this.": 4,
+  "=== CLIne Prompt =========================================================|This is **not** the CLIne prompt.": 2,
+  "com/blog/2026-02-15-building-this-blog No.|com/blog/2026-02-15-building-this-blog).": 2,
+  "response` returned from the `ollama.|return None return ollama_response.": 2,
+  "It is not one or the other.|Then there’s the other one.": 4,
+  "That you have to debate with.|” You do not debate this.": 2,
+  "agent\") if not self.|agents = agents self.": 2
+ }
+}

@@ -235,6 +235,10 @@ class RunRecord:
     cites: tuple[str, ...] = ()
     proposer: str = ""
     record_id: str = ""
+    #: The epistemic state the proposer *asked for*, carried verbatim so the
+    #: write path can compare it against an independent derivation. It is a
+    #: claim to be checked, never an input to a write (ADR-029).
+    model_proposed_state: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -246,6 +250,7 @@ class RunRecord:
             "cites": list(self.cites),
             "proposer": self.proposer,
             "record_id": self.record_id,
+            "model_proposed_state": self.model_proposed_state,
         }
 
 
@@ -409,5 +414,6 @@ class Runtime:
             decision_id=decision_id,
             cites=proposal.cites,
             proposer=self.proposer_name,
+            model_proposed_state=proposal.proposed_state,
             record_id=content_id(body, prefix="run-"),
         )

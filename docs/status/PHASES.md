@@ -545,3 +545,51 @@ the independent auditor. The auditor can check that evidence resolves, not that
 it is *complete*. Recorded in ADR-026 rather than fixed: a completeness
 assertion needs a definition of what a claim should cite, and guessing one
 would be the threshold-fitting this project keeps declining to do.
+
+### ADR-029: the model is not an input to the write
+
+The write path existed only as an argument until this. `Runtime` holding no
+store was the guarantee, and it was a guarantee about *one class* — a weaker
+thing than "a belief cannot move unless independent evidence says it should".
+
+Three separable authorities now stand between a proposal and a belief:
+
+| | what it is | can it cause a write? |
+|---|---|---|
+| runtime verdict | citation check + `propose` grant | no |
+| `derive` grant | a *separate* capability on the applier's own gateway | no |
+| derivation | `Evaluator.evaluate(apply=False)`, knows no proposal exists | yes |
+
+The state written is the derived one. The model's `proposed_state` is read for
+exactly one purpose: to detect disagreement.
+
+**A disagreement writes nothing.** Not the model's state, and not the derived
+one. Silently writing the derived state would look identical to governing the
+model while telling the reader nothing, and the disagreement is the most
+informative thing in the run.
+
+The `derive` grant being separate from `propose` is the load-bearing detail.
+One capability would mean a policy that let models propose had no way to stop
+them writing — and every policy would be wrong in the same direction.
+
+Real artifact, genuinely permitted record, model asserting `supported` on a
+claim the corpus contradicts:
+
+```
+OUT  : derivation-disagrees | derived: contradicted
+STATE: contradicted  (unchanged)
+```
+
+319,293 evaluations after, distribution identical, auditor clean. The real
+model never got that far — its one-character citation error (`ADR-028`) was
+refused at `unknown-citation`, and the applier reported `not-permitted`
+without deriving. Two independent failures, each sufficient.
+
+`Applier.bind()` raises `TypeError` for anything but `store` and `gateway`, so
+reaching the read-only loop from the write path is loud rather than subtle.
+
+23 tests. Five sabotages, each caught by a different test — including *drop the
+agreement gate* (ignores the model) and *write the model's state* (obeys it),
+which look alike and are opposite defects.
+
+**614 passed, 6 skipped.**

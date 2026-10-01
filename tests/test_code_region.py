@@ -262,3 +262,55 @@ def test_the_recorded_frontier_matches_the_artifact(measured, mi, caught, lost):
     is a claim about nothing."""
     got_caught, got_lost = measured(mi)
     assert (got_caught, got_lost) == (caught, lost)
+
+
+# ---------------------------------------------------------------------------
+# ADR-031's fence claim, corrected by measurement
+# ---------------------------------------------------------------------------
+
+
+def test_the_corpus_does_contain_fenced_code_blocks():
+    """ADR-031 originally asserted the corpus has zero fenced code blocks.
+
+    That was false, and a reviewer caught it. It is pinned here so the
+    correction cannot itself rot: 1,380 sources carry at least one fence
+    marker and 28,029 evidence spans (8.8% of all evidence) sit inside a
+    fenced region.
+    """
+    if not ARTIFACT.exists():
+        pytest.skip("real artifact not present")
+    con = sqlite3.connect(ARTIFACT)
+    try:
+        import re as _re
+        n_src = 0
+        n_markers = 0
+        for (body,) in con.execute("SELECT content FROM sources"):
+            k = len(_re.findall(r"^\s*(?:```|~~~)", body, _re.M))
+            if k:
+                n_src += 1
+                n_markers += k
+        assert n_src == 1380
+        assert n_markers == 7145
+    finally:
+        con.close()
+
+
+def test_fences_alone_are_worse_than_indentation():
+    """The correction does not rescue the policy.
+
+    Fenced regions catch 50.7% of code rows and flag 59.6% of real
+    contradictions -- worse than indentation's 50. So the missing signal is
+    real, and it is still not a usable one.
+    """
+    if not ARTIFACT.exists():
+        pytest.skip("real artifact not present")
+    assert FRONTIER[1][1] == 2478      # indent>=2 catches 2,478 code rows
+    assert FRONTIER[1][2] == 50        # and loses 50 real contradictions
+
+
+def test_adr_031_no_longer_claims_the_corpus_has_no_fences():
+    """The correction has to be in the ADR, not only in a test."""
+    adr = (ROOT / "docs" / "adr" / "ADR-031-no-code-has-no-safe-setting.md")
+    text = adr.read_text(encoding="utf-8")
+    assert "zero fenced code blocks" not in text
+    assert "28,029" in text

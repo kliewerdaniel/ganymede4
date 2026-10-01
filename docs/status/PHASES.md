@@ -593,3 +593,57 @@ agreement gate* (ignores the model) and *write the model's state* (obeys it),
 which look alike and are opposite defects.
 
 **614 passed, 6 skipped.**
+
+## Phase 20 — governing the model loop (COMPLETE)
+
+**Thesis:** a model may be near the write path without ever being its
+authority.
+
+| ADR | decision |
+|---|---|
+| ADR-027 | the contradiction sample needs a human, not a heuristic |
+| ADR-028 | a model that was nearly right is still wrong |
+| ADR-029 | three authorities, and the model is only the first |
+| ADR-030 | 2,854 contradiction pairs are 70 pairs |
+| ADR-031 | `no-code` has no safe setting |
+
+### The model is not an input to the write
+
+Three separated authorities, none of which is the model:
+
+| authority | can write? |
+|---|---:|
+| runtime citation validation + `propose` grant | no |
+| separate `derive` grant in the `Applier` gateway | no |
+| `Evaluator` backed by `Store` | **yes** |
+
+The live `qwen3:4b` run produced one parseable proposal citing a claim ID
+wrong by one character in 68 (`6` for `4` at index 15). It was refused as
+`unknown-citation`. No prefix matching, no edit-distance repair. A nearly
+correct but invalid citation is still invalid.
+
+Where the model *was* permitted and proposed `supported`, independent
+evidence derived `contradicted`. The `Applier` reported `derivation-disagrees`
+and moved nothing.
+
+### The contradiction population
+
+2,854 subject/peer pair rows collapse to **70 distinct pairs** (40.8x
+redundancy). One pair is 1,026 rows. Population-weighted: 87.7% code
+fragments, 3.3% real contradictions.
+
+`no-code` was selected on that evidence and then **declined at
+implementation** (ADR-031): the structural detector catches 2,478 of 2,504
+code rows but destroys a real contradiction living inside a string literal.
+There is no setting that is both broad and safe.
+
+### Correction found by review
+
+ADR-031 first claimed the corpus has no fenced code blocks. It does:
+**1,380 sources, 7,145 markers, 28,029 evidence spans (8.8%) inside fenced
+regions.** The claim conflated ADR-016's fence-dropping with the absence of
+fenced content. The correction does not rescue the policy — fences alone flag
+59.6% of real contradictions — but the reason the policy fails is now
+measured rather than asserted.
+
+**663 passed, 6 skipped.**

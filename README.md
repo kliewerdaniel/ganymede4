@@ -33,7 +33,7 @@ no test or script reaches the network.
 ```bash
 git clone https://github.com/kliewerdaniel/ganymede4
 cd ganymede4
-python -m pytest        # 500 tests, ~3 min (two real-corpus tests dominate)
+python -m pytest        # 663 tests, ~40 s (two real-corpus tests dominate)
 ```
 
 ### One command builds and verifies the artifact
@@ -95,9 +95,14 @@ contained the empty-term contradiction class. Measured after ADR-020: 402.
 
 ## Current phase
 
-**Phase 19 — read the verdicts, then prove no later write can invalidate an
-earlier invariant.** 500 tests: 499 pass, 1 skipped. Python 3.12, stdlib-only,
-offline, auditor clean.
+**Phase 20 — can the pipeline be governed by something other than trust?**
+663 tests: 657 pass, 6 skipped. Python 3.12, stdlib-only, offline, auditor
+clean.
+
+Phase 19 asked whether the verdicts mean anything and whether a later write
+can invalidate an earlier invariant. Phase 20 asks whether a *model* can be
+allowed near the write path without becoming the authority — and answers
+with three separated authorities (ADR-028, ADR-029).
 
 Task 1 found two write paths that silently broke invariants: `Reviser` used a
 raw `UPDATE` and neither bumped `state_epoch` nor re-sealed, and its
@@ -174,6 +179,8 @@ sample is blocked on a human labelling pass (Task 3).
 This is a research prototype with one narrow, unusual property — its claims
 resolve to character offsets in source bytes, and an auditor that does not
 import the code it checks verifies that. It is not a general retrieval system,
-it is not multilingual, and it has never been run with a real model proposing
-anything. Treat the numbers as measurements of *this* corpus, not as
-performance claims.
+it is not multilingual. It **has** been run against a real local model
+(`qwen3:4b`), and that run is the most useful result in the repository: the
+model cited a claim ID wrong by a single character out of 68, and the system
+refused it (ADR-028). Treat the numbers as measurements of *this* corpus, not
+as performance claims.

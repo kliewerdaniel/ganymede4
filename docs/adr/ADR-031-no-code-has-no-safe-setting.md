@@ -82,9 +82,33 @@ is not good enough to apply.
 A detector that separates string literals from code — i.e. a real parser, or
 per-source-language metadata recorded at compile time. Not a threshold.
 
-The corpus has zero fenced code blocks and prose-only URIs, so neither
-Markdown structure nor filename is available as a signal. The information
-that would settle this is not in the artifact.
+## Correction: the corpus does have fences
+
+An earlier draft of this ADR claimed "the corpus has zero fenced code
+blocks, so neither Markdown structure nor filename is available as a
+signal." **That was wrong**, and a review of the repo caught it. Measured on
+the real artifact:
+
+| | count |
+|---|---:|
+| sources containing at least one fence marker | 1,380 of 18,930 |
+| fence markers in stored source bytes | 7,145 |
+| **evidence spans inside a fenced region** | **28,029 of 319,293 (8.8%)** |
+| claims whose text contains a fence marker | 901 of 336,190 |
+
+So Markdown structure *is* available. The error was conflating ADR-016's
+behaviour — fences are "dropped whole" as delimiters, 5,766 -> 868 — with
+the absence of fenced *content*. The bodies survive; only the fence lines
+are dropped. ADR-016's own invariant holds: exactly 5 evidence spans open
+with a line-start fence, the residual its regex documents.
+
+The correction does not rescue the policy. Fenced regions catch 50.7% of
+code rows and flag **59.6%** of real contradictions — *worse* than
+indentation's 50. Combined with indentation (union) they reach 99.5% of code
+rows and still destroy 56 real-contradiction rows.
+
+So the decision stands, for a different and better-evidenced reason: the
+signal exists, and it is not separable.
 
 ## Evidence
 

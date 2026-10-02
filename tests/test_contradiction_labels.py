@@ -216,10 +216,12 @@ def test_the_population_still_holds_against_the_artifact():
     clean clone. Never silently skipped for another reason."""
     import sqlite3
 
-    db = Path("/tmp/p19-t5-real.db")
+    db = Path("/tmp/v424.db")  # see test_code_region.ARTIFACT for why this path
     if not db.exists():
         pytest.skip("real artifact not present; population unverified here")
-    con = sqlite3.connect(db)
+    # mode=ro, not the default: this test only counts rows, and a writable
+    # handle on the canonical artifact is a loaded gun.
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
         pairs = 0

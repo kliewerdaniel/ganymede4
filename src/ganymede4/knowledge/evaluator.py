@@ -178,7 +178,29 @@ class Evaluator:
                 self._texts[cid] = row["text"]
                 self._norms[cid] = normalize(row["text"])
         self._index = BM25(self._texts)
+        self._scope: dict[str, frozenset[str]] = self._build_scope_index()
         self._build_candidate_indexes()
+
+    def _build_scope_index(self) -> dict[str, frozenset[str]]:
+        """Which source documents each claim was extracted from.
+
+        ADR-032. A contradiction is a claim about the same subject as its
+        peer; two sentences that share a bag of words but come from unrelated
+        documents are not in conflict, they simply both contain the word
+        "you". Measured on the canonical artifact, 2,676 of 2,854 contradiction
+        pair rows (93.8%) spanned two documents.
+
+        Built with one query per claim, which is one per claim in the version
+        and therefore not quadratic in the corpus the way `evaluate_all` was
+        before ADR-011 -- the index is read from a dict afterwards.
+        """
+        scope: dict[str, frozenset[str]] = {}
+        for cid in self._manifest.claim_ids:
+            srcs = frozenset(
+                row["source_id"] for row in self._store.evidence_for(cid)
+            )
+            scope[cid] = srcs
+        return scope
 
     def _build_candidate_indexes(self) -> None:
         """Two indexes so the hot predicates stop scanning the whole corpus.
@@ -348,13 +370,32 @@ class Evaluator:
         """
         if not subject.polarity_known or not subject.terms:
             return []
+        # ADR-032: a peer must come from a document the subject also came
+        # from. An empty subject scope cannot satisfy this, which is the
+        # fail-closed direction: with no provenance there is no shared
+        # subject, and asserting CONTRADICTED without one is a manufactured
+        # finding rather than a missed one.
+        #
+        # The early return is defence in depth, NOT the thing that makes this
+        # work: the per-peer intersection below already rejects an unscoped
+        # subject, since an empty set intersects nothing. Deleting this guard
+        # leaves every test green. It stays because it states the fail-closed
+        # intent at the point where the decision is made, and because relying
+        # on a downstream filter to uphold a *stated* invariant is how a
+        # future refactor silently removes it.
+        subject_scope = self._scope.get(subject_id, frozenset())
+        if not subject_scope:
+            return []
         out: list[str] = []
         for cid in self._term_peers(subject_id, subject):
             norm = self._norms[cid]
             if not norm.polarity_known or not norm.terms:
                 continue
-            if norm.terms == subject.terms and norm.polarity != subject.polarity:
-                out.append(cid)
+            if norm.terms != subject.terms or norm.polarity == subject.polarity:
+                continue
+            if not (self._scope.get(cid, frozenset()) & subject_scope):
+                continue
+            out.append(cid)
         return sorted(out)
 
     def evaluate(

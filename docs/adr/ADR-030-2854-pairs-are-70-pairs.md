@@ -8,6 +8,14 @@ Supersedes the decision half of ADR-027, which stays PROPOSED only in the
 sense that its open question — "should the compiler emit code as claims?" — is
 answered here. ADR-027's *sampling* work stands.
 
+**Premise corrected by ADR-032.** The `no-code` decision below still stands, but
+its stated reason is wrong. Most of the 2,854 pair rows were not contradictions
+at all: 93.8% of them span two unrelated documents, matched only because they
+shared a normalized bag of words. A document-scope constraint (ADR-032) removes
+that noise with a principled rule and no fitted threshold, and loses zero
+labelled real contradictions. Read this ADR together with ADR-032; where they
+disagree about *why*, ADR-032 is right.
+
 ## Context
 
 ADR-027 proposed a policy for code-shaped claims and refused to decide it
@@ -75,6 +83,12 @@ Unweighted over the 70 distinct pairs: 36 code fragments (51.4%), 14 real
 contradictions (20.0%), 12 other, 8 subset.
 
 ## Decision: `no-code` costs nothing
+
+> **Corrected by ADR-032.** The decision to leave `no-code` unimplemented
+> stands. The reasoning below — "the refusals are concentrated entirely in code
+> fragments, and no real contradiction is lost" — was measured on labels that
+> treated cross-document noise as findings. The conclusion happens to survive
+> for a different and better reason, which is recorded in ADR-032.
 
 `CONTRADICTED` is absorbing, so the asymmetry is the whole decision — a
 refused verdict is recoverable, a lost real contradiction is not.

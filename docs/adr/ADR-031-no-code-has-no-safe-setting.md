@@ -4,6 +4,13 @@ Status: Ratified
 Date: 2026-10-01
 Depends on: ADR-027, ADR-030
 
+**Read with ADR-032.** The measurements here are sound as measurement — it is
+still true that indentation has no safe setting. But the frontier was computed
+against labels that counted cross-document noise as contradictions, and ADR-032
+found that scoping by source document removes 93.8% of the pair rows before
+any layout heuristic is applied. This ADR is therefore the wrong instrument,
+which is a stronger statement than "no safe setting exists".
+
 ## Context
 
 ADR-030 selected `no-code` as a policy and declined to fit a threshold for

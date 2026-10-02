@@ -224,9 +224,13 @@ class TestTheCandidateIndexesAreExact:
     def evaluator(self):
         db = tempfile.mktemp(suffix=".db")
         store = Store(db)
+        # One document, not eight. ADR-032 requires a contradiction's peers to
+        # share a source document, so a fixture that gives each text its own
+        # document no longer contains a contradiction to index -- it would make
+        # this file assert the absence of the thing it exists to measure.
         artifact = compile_corpus(
             store,
-            [SourceSpec(f"s{i}.md", t) for i, t in enumerate(self.TEXTS)],
+            [SourceSpec("s.md", "\n".join(self.TEXTS))],
             transaction_time="2026-09-28T00:00:00Z",
         )
         ev = Evaluator(store, artifact.manifest)
@@ -239,6 +243,11 @@ class TestTheCandidateIndexesAreExact:
         ev = evaluator
         assert ev._norms, "fixture produced no claims"
         for cid, norm in ev._norms.items():
+            # ADR-032: the reference restates the *current* predicate, scope
+            # included. Comparing against the pre-ADR-032 predicate would fail
+            # for the right reason here and would keep failing after the fix,
+            # which is how a stale reference becomes a permanent false alarm.
+            scope = ev._scope.get(cid, frozenset())
             brute = sorted(
                 c
                 for c, n in ev._norms.items()
@@ -247,6 +256,8 @@ class TestTheCandidateIndexesAreExact:
                 and n.polarity_known
                 and norm.polarity_known
                 and n.polarity != norm.polarity
+                and scope
+                and (ev._scope.get(c, frozenset()) & scope)
             )
             assert ev._contradictions(cid, norm) == brute, cid
 
@@ -345,11 +356,17 @@ class TestCostCurve:
         db = tempfile.mktemp(suffix=".db")
         try:
             with Store(db) as store:
+                # One document (ADR-032): a contradiction needs both sides in
+                # the same source, and these are two statements about the same
+                # thing, so this is exactly the case that must still fire.
                 artifact = compile_corpus(
                     store,
                     [
-                        SourceSpec("a.md", "Provenance is enforced at write time.\n"),
-                        SourceSpec("b.md", "Provenance is not enforced at write time.\n"),
+                        SourceSpec(
+                            "a.md",
+                            "Provenance is enforced at write time.\n"
+                            "Provenance is not enforced at write time.\n",
+                        ),
                     ],
                     transaction_time="2026-09-28T00:00:00Z",
                 )

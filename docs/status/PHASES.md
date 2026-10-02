@@ -646,4 +646,18 @@ fenced content. The correction does not rescue the policy — fences alone flag
 59.6% of real contradictions — but the reason the policy fails is now
 measured rather than asserted.
 
-**663 passed, 6 skipped.**
+**677 passed, 6 skipped.**
+
+### ADR-032: scope, not layout
+
+The re-read of the 14 labelled `real_contradiction` pairs found **12 of 14
+span two unrelated documents**, sharing only a normalized bag of words —
+`{'you'}`, `{'point'}`, `{'pattern'}`. Measured across the corpus, **93.8% of
+the 2,854 contradiction pair rows are cross-document**. The evaluator's rule
+compared term sets with no notion of which document either claim came from.
+
+A peer must now share a source document with the subject. `CONTRADICTED`
+subjects go **402 -> 156**, and no labelled real contradiction is lost. The
+residue is the finding: **78% of surviving pairs are code fragments**, so
+ADR-031's layout detector was aimed one layer too low. Attestation is
+deliberately untouched; scope-unknown fails closed.

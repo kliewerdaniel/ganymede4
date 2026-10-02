@@ -1,7 +1,7 @@
 # Open: what is a contradiction in a corpus that contains source code?
 
-**Status:** Answered as far as this corpus permits — see ADR-030, ADR-031
-**See also:** ADR-030, ADR-031, ADR-027 (PROPOSED), `docs/labelling/CONTRADICTIONS.md`
+**Status:** Answered as far as this corpus permits — see ADR-030, ADR-031, ADR-032
+**See also:** ADR-030, ADR-031, ADR-032, ADR-027 (PROPOSED), `docs/labelling/CONTRADICTIONS.md`
 **Date:** 2026-09-29 (closed 2026-10-01)
 **Related:** ADR-006, ADR-012, ADR-020
 
@@ -12,6 +12,18 @@
 > policy is **not** implemented. What remains open is narrower and is stated
 > at the end of this file. The historical measurement below is preserved as
 > recorded.
+>
+> **Reopened and re-answered by ADR-032.** The re-read of the 14 labelled
+> `real_contradiction` pairs found 12 of 14 span two unrelated documents —
+> matched only on a shared bag of words ("you", "point", "pattern"). 93.8% of
+> all 2,854 pair rows are cross-document. So the question was one layer too low:
+> most of this population was never a contradiction. **Scope**, not layout, is
+> the real filter, and ADR-032 implements it. `CONTRADICTED` subjects go
+> 402 -> 156, no labelled real contradiction is lost, and **78% of what
+> survives is still code fragments** — the residue `no-code` was invented for.
+> The genuinely open question is now smaller: a same-document code fragment
+> like `return ''` versus `return None` is a real scope-legal contradiction that
+> only a parser could distinguish from a semantic one.
 
 ## The question
 

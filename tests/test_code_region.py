@@ -24,7 +24,11 @@ from ganymede4.compile.coderegion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 LABELS = ROOT / "docs" / "labelling" / "agent-labels.json"
-ARTIFACT = Path("/tmp/p19-t5-real.db")
+#: The canonical evaluated artifact. Read-only: `sqlite3.connect(path)` opens
+#: read-write, and a measurement that writes to the thing it measures is not a
+#: measurement. An earlier version of this pointed at /tmp/p19-t5-real.db and
+#: silently appended 27,707 evaluation rows to it while trying to count them.
+ARTIFACT = Path("/tmp/v424.db")
 
 DOC = (
     "Here is some prose that is definitely not code.\n"
@@ -182,7 +186,7 @@ def measured(labels):
     """
     if not ARTIFACT.exists():
         pytest.skip("real artifact not present")
-    con = sqlite3.connect(ARTIFACT)
+    con = sqlite3.connect(f"file:{ARTIFACT}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     content: dict[str, str] = {}
 
@@ -279,7 +283,7 @@ def test_the_corpus_does_contain_fenced_code_blocks():
     """
     if not ARTIFACT.exists():
         pytest.skip("real artifact not present")
-    con = sqlite3.connect(ARTIFACT)
+    con = sqlite3.connect(f"file:{ARTIFACT}?mode=ro", uri=True)
     try:
         import re as _re
         n_src = 0

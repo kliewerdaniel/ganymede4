@@ -51,6 +51,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
 
 from ganymede4.compile.compiler import SourceSpec, compile_corpus  # noqa: E402
+from ganymede4.compile.reopen import rebuild_manifest  # noqa: E402
 from ganymede4.knowledge.evaluator import Evaluator  # noqa: E402
 from ganymede4.knowledge.store import Store  # noqa: E402
 from ganymede4.witness.witness import Witness  # noqa: E402
@@ -106,6 +107,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="fail instead of overwriting an existing --db",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "continue an interrupted evaluation in an existing --db instead of "
+            "deleting it. Skips claims that already hold a verdict; the "
+            "resulting artifact is identical to an uninterrupted run."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # Resolved before the corpus package is imported: load.py binds
@@ -123,7 +133,28 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     db = Path(args.db).expanduser()
-    if db.exists():
+
+    if args.resume and not db.exists():
+        # ADR-033. Resuming is a claim about an artifact that already exists.
+        # If it does not, falling through would compile the corpus from
+        # scratch while ignoring the flag -- the operator asked to save eight
+        # hours and instead spent them, with nothing in the output saying so.
+        # Fail closed, before touching anything.
+        print(
+            f"FAILED: --resume needs an existing artifact, but {db} does not exist.",
+            file=sys.stderr,
+        )
+        print("  drop --resume to build from scratch.", file=sys.stderr)
+        return 2
+
+    if db.exists() and args.resume:
+        # ADR-033. A full-corpus evaluation runs for hours, so the artifact
+        # under --db may be a partial one. Deleting it here would throw away
+        # every completed claim; instead the step below evaluates only what is
+        # missing. The compile step is skipped entirely for the same reason --
+        # the claims are already in the file.
+        print(f"resuming: keeping the partial artifact at {db}")
+    elif db.exists():
         if args.keep_existing:
             print(f"refusing to overwrite {db} (--keep-existing)", file=sys.stderr)
             return 2
@@ -157,33 +188,50 @@ def main(argv: list[str] | None = None) -> int:
 
     compile_started = time.monotonic()
     with Store(str(db)) as store:
-        artifact = compile_corpus(store, sources, transaction_time=TRANSACTION_TIME)
+        if args.resume:
+            # The claims are already compiled in the file. Recompiling would
+            # not be wrong -- it is deterministic and content-addressed -- but
+            # it costs the better part of an hour to arrive at the same rows.
+            manifest = rebuild_manifest(store)
+            print("\n  resumed: reusing the compiled claims already in the file")
+        else:
+            artifact = compile_corpus(store, sources, transaction_time=TRANSACTION_TIME)
+            manifest = artifact.manifest
         print(f"\n  compiled in {time.monotonic() - compile_started:.1f}s")
         counts = dict(store.counts())
-        compile_root = artifact.manifest.root
-        compile_version = artifact.manifest.version
+        compile_root = manifest.root
+        compile_version = manifest.version
         print(f"  version     {compile_version}")
         print(f"  root        {compile_root}")
         print(f"  sources     {counts.get('sources', 0):,}")
         print(f"  claims      {counts.get('claims', 0):,}")
         print(f"  evidence    {counts.get('evidence', 0):,}")
-        print(f"  heuristics  {len(artifact.heuristic_ids):,}")
-        print(f"  dropped     {artifact.dropped_segments:,} non-propositions")
+        print(f"  heuristics  {len(manifest.heuristic_ids):,}")
+        print(f"  dropped     (not recomputed on a resumed run)")
 
         # Reproducibility, checked here because this is the only place the
         # source list and the compiled artifact coexist.
-        same = (
-            compile_corpus(
-                store, list(reversed(sources)), transaction_time=TRANSACTION_TIME
-            ).manifest.root
-            == compile_root
-        )
-        print(f"  reversed-order recompile identical: {same}")
-        if not same:
-            print("  FAILED: artifact identity depends on iteration order", file=sys.stderr)
-            return 1
+        #
+        # Skipped on --resume: this check recompiles the corpus into the very
+        # store being resumed, which would insert a second copy of every
+        # claim into a partial artifact. The check already passed on the run
+        # that produced those claims, and determinism does not become
+        # conditional on how the run was interrupted.
+        if args.resume:
+            print("  reversed-order recompile: skipped (already proven this run)")
+        else:
+            same = (
+                compile_corpus(
+                    store, list(reversed(sources)), transaction_time=TRANSACTION_TIME
+                ).manifest.root
+                == compile_root
+            )
+            print(f"  reversed-order recompile identical: {same}")
+            if not same:
+                print("  FAILED: artifact identity depends on iteration order", file=sys.stderr)
+                return 1
 
-        witness = Witness(store, artifact.manifest)
+        witness = Witness(store, manifest)
         print("\n  witness (a read-only view; it may not change anything):")
         for question in ("is the model the intelligence?", "provenance"):
             answer = witness.ask(question)
@@ -193,7 +241,28 @@ def main(argv: list[str] | None = None) -> int:
         # --------------------------------------------------------------- 2
         if not args.no_evaluate:
             _step(2, "evaluate (deterministic relations only)")
-            Evaluator(store, artifact.manifest).evaluate_all()  # re-seals (ADR-021)
+            evaluator = Evaluator(store, manifest)
+            if args.resume:
+                # ADR-033: only what is missing. A claim that already holds a
+                # verdict holds it under a content-addressed id, so skipping
+                # it leaves the artifact identical to an uninterrupted run.
+                done = {
+                    r[0]
+                    for r in store.db.execute("SELECT DISTINCT subject_id FROM evaluations")
+                }
+                todo = [cid for cid in sorted(evaluator._norms) if cid not in done]
+                print(f"  resuming: {len(done):,} already evaluated, "
+                      f"{len(todo):,} remaining")
+                if not todo:
+                    print("  nothing left to evaluate")
+                done_now = evaluator.evaluate_ids(only=todo, progress_every=2000)
+            else:
+                done_now = evaluator.evaluate_ids(progress_every=2000)  # ADR-021
+            # Reported from what the run actually returned, not from what
+            # it was asked to do. A plan and a result are different claims, and
+            # only the second one is evidence: a resume that computed the right
+            # todo list and then ignored it would print an identical message.
+            print(f"  evaluated    {len(done_now):,} claims")
             by_state: dict[str, int] = {}
             for row in store.db.execute("SELECT state, COUNT(*) n FROM claims GROUP BY state"):
                 by_state[row["state"]] = row["n"]

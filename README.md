@@ -33,7 +33,7 @@ no test or script reaches the network.
 ```bash
 git clone https://github.com/kliewerdaniel/ganymede4
 cd ganymede4
-python -m pytest        # 677 tests, ~40 s (two real-corpus tests dominate)
+python -m pytest        # 689 tests, ~60 s (two real-corpus tests dominate)
 ```
 
 ### One command builds and verifies the artifact
@@ -96,7 +96,7 @@ contained the empty-term contradiction class. Measured after ADR-020: 402.
 ## Current phase
 
 **Phase 20 — can the pipeline be governed by something other than trust?**
-677 tests: 671 pass, 6 skipped. Python 3.12, stdlib-only, offline, auditor
+689 tests: 683 pass, 6 skipped. Python 3.12, stdlib-only, offline, auditor
 clean.
 
 Phase 19 asked whether the verdicts mean anything and whether a later write

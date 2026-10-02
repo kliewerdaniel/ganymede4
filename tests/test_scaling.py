@@ -124,10 +124,17 @@ class TestTheUnboundedSearchIsGone:
 
         A fix that made evaluation fast by evaluating fewer claims would be a
         different and much worse defect than the one it replaced.
+
+        ADR-033 moved the iteration into a ``_select`` helper, so this reads
+        the helper's source for the ordering rather than ``evaluate_all``'s.
+        The invariant is unchanged: the default pass must be every claim in
+        sorted order, not a subset chosen for speed.
         """
-        source = inspect.getsource(Evaluator.evaluate_all)
-        assert "sorted(self._norms)" in source
-        assert "self.evaluate(" in source
+        select = inspect.getsource(Evaluator._select)
+        assert "sorted(self._norms)" in select
+        assert "only is None" in select
+        run = inspect.getsource(Evaluator._run)
+        assert "self.evaluate(" in run
 
 
 class TestExactness:

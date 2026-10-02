@@ -52,11 +52,20 @@ def rebuild_manifest(store: Store) -> Manifest:
         return [r[0] for r in store.db.execute(query)]
 
     source_ids = rows("SELECT id FROM sources")
-    claim_ids = rows("SELECT id FROM claims")
-    evidence_ids = rows("SELECT id FROM evidence")
+    # Heuristic claims are leaves in their own right (they go in as
+    # ``heuristic_ids``), but they are NOT members of ``claim_ids``. The
+    # compiler appends source-derived claims to ``claim_ids`` before mining
+    # runs, so a miner's output never enters the set it was derived from.
+    # Selecting every claim here would fold the 314 heuristics into
+    # ``claim_ids`` as well and produce a manifest that differs structurally
+    # from the compiled one -- a different root, and a root that changes
+    # depending on whether the artifact was built or resumed.
     heuristic_ids = rows(
         "SELECT DISTINCT from_id FROM claim_edges WHERE relation = 'DERIVED_FROM'"
     )
+    mined = set(heuristic_ids)
+    claim_ids = [cid for cid in rows("SELECT id FROM claims") if cid not in mined]
+    evidence_ids = rows("SELECT id FROM evidence")
 
     states = [(r[0], r[1]) for r in store.db.execute("SELECT id, state FROM claims")]
     state_counts: dict[str, int] = {}

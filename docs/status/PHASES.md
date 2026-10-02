@@ -661,3 +661,48 @@ subjects go **402 -> 156**, and no labelled real contradiction is lost. The
 residue is the finding: **78% of surviving pairs are code fragments**, so
 ADR-031's layout detector was aimed one layer too low. Attestation is
 deliberately untouched; scope-unknown fails closed.
+
+### ADR-033: an interrupted build must be resumable
+
+A full-corpus build evaluates 319,293 claims. The first live run reached
+19,485 evaluations (6.1%) and was terminated with `EXIT=143`, leaving 560 MB
+that was neither a finished artifact nor resumable — the next attempt started
+from zero. (The ADR originally put a full build at "roughly eight hours";
+measured throughput of ~78 claims/s puts it nearer **1.1 hours**. The estimate
+was never observed and is corrected in place.)
+
+`--resume` keeps the partial `--db`, reuses the compiled claims through
+`rebuild_manifest`, and evaluates only claims holding no verdict. Proven
+invisible: on a 60-document corpus an interrupted-then-resumed build and an
+uninterrupted one both produce `v1-c005ee6adccc4ce6`.
+
+Resume exposed a defect that predates it. `rebuild_manifest` selected
+`claim_ids` with `SELECT id FROM claims`, which includes the **miner's own
+output** — a heuristic is a leaf, never a member of the set it derives from.
+The first resumed build diverged (`v1-4f841bfa7dd2b590`, 0 derived claims
+against 314). It was invisible because `rebuild_manifest` had only ever been
+validated against a fully evaluated artifact, where both criteria selected the
+same 16,897 claims.
+
+Two process findings, recorded because they cost more than the code did:
+
+- **The first three sabotages all survived.** The tests asserted that
+  arguments were threaded correctly, which is not the same claim as that work
+  was skipped. Only tests that build an artifact both ways and compare
+  identity can see the real defect.
+- **The performance sabotage survives every correctness check.** Dropping
+  `only=` yields a *correct* artifact — `INSERT OR IGNORE` makes redundant
+  work a no-op — and an identical row count. It is caught only by reporting
+  the number of claims the run says it evaluated, taken from the evaluator's
+  return value rather than the caller's todo list.
+
+`--resume` against a nonexistent database originally fell through to an
+ordinary full build and exited 0, silently ignoring the flag. Now fails closed
+before the corpus is touched.
+
+`evaluate_all` keeps returning `Verdict` objects. Changing it to return claim
+ids — which is what resume wanted — broke 45 tests across six modules. The
+suite caught it, but only incidentally; `test_evaluate_all_still_returns_verdicts`
+now pins the contract so the next attempt must argue with it.
+
+**689 passed, 6 skipped.**

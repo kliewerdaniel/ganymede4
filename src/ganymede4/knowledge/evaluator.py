@@ -38,6 +38,7 @@ copies of themselves.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, Sequence
@@ -557,9 +558,14 @@ class Evaluator:
         )
 
     def evaluate_all(
-        self, *, apply: bool = True, transaction_time: str = "1970-01-01T00:00:00Z"
+        self,
+        *,
+        apply: bool = True,
+        transaction_time: str = "1970-01-01T00:00:00Z",
+        only: Sequence[str] | None = None,
+        progress_every: int = 0,
     ) -> list[Verdict]:
-        """Evaluate every claim in the version, in deterministic id order.
+        """Evaluate claims in deterministic id order.
 
         ADR-021: when ``apply`` moves beliefs, the artifact is re-sealed
         before returning. Doing it here rather than in the caller is the
@@ -569,15 +575,81 @@ class Evaluator:
         the only moment that can be guaranteed is the end of the bulk write.
 
         With ``apply=False`` nothing moved, so there is nothing to re-seal.
+
+        ADR-033 adds ``only`` (restrict the run to named claims) and
+        ``progress_every`` (a stderr marker, off by default because a library
+        has no business printing). The return value stays ``list[Verdict]``:
+        an earlier version of this change returned claim ids instead, which
+        broke 45 call sites that read ``.subject_id`` off the result. A resume
+        caller that needs the ids should use ``evaluate_ids``.
         """
-        verdicts = [
-            self.evaluate(cid, apply=apply, transaction_time=transaction_time)
-            for cid in sorted(self._norms)
-        ]
+        return self._run(only, apply, transaction_time, progress_every)
+
+    def evaluate_ids(
+        self,
+        *,
+        apply: bool = True,
+        transaction_time: str = "1970-01-01T00:00:00Z",
+        only: Sequence[str] | None = None,
+        progress_every: int = 0,
+    ) -> list[str]:
+        """As ``evaluate_all``, but returns the claim ids covered.
+
+        This is the resume interface (ADR-033). A caller that wants to know
+        how far an eight-hour run got needs the ids, and needs them to come
+        from the run that actually happened rather than from a plan it made
+        beforehand -- a plan and a result are different claims.
+        """
+        self._run(only, apply, transaction_time, progress_every)
+        return list(self._last_ids)
+
+    def _select(
+        self, only: Sequence[str] | None, progress_every: int
+    ) -> list[str]:
+        pending = sorted(self._norms) if only is None else list(only)
+        if progress_every:
+            print(
+                f"  evaluating {len(pending):,} claims",
+                file=sys.stderr,
+                flush=True,
+            )
+        return pending
+
+    def _run(
+        self,
+        only: Sequence[str] | None,
+        apply: bool,
+        transaction_time: str,
+        progress_every: int,
+    ) -> list[Verdict]:
+        pending = self._select(only, progress_every)
+        verdicts: list[Verdict] = []
+        self._last_ids = list(pending)
+        for n, cid in enumerate(pending, 1):
+            verdicts.append(
+                self.evaluate(cid, apply=apply, transaction_time=transaction_time)
+            )
+            if progress_every and n % progress_every == 0:
+                print(
+                    f"  {n}/{len(pending)} evaluated",
+                    file=sys.stderr,
+                    flush=True,
+                )
         if apply:
             self._store.reseal()
         return verdicts
 
     def contradictions(self) -> list[Verdict]:
-        """Every contradicted claim, without applying anything."""
-        return [v for v in self.evaluate_all(apply=False) if v.relation is Relation.CONTRADICTED]
+        """Every contradicted claim, without applying anything.
+
+        ADR-033: this asks per claim rather than calling ``evaluate_all``,
+        because a full-corpus call materialises every Verdict in memory just
+        to discard all but the contradicted ones. At 336,190 claims that is
+        a list of half a million objects to keep 156 of.
+        """
+        out: list[Verdict] = []
+        for cid in sorted(self._norms):
+            verdict = self.evaluate(cid, apply=False)
+            if verdict.relation is Relation.CONTRADICTED:
+                out.append(verdict)
+        return out
